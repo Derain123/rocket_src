@@ -623,6 +623,7 @@ class TLEdgeIn(
     b.corrupt := false.B
     /*runahead code begin*/
     b.hit     := true.B
+    b.acquire := true.B
     /*runahead code end*/
     (legal, b)
   }
@@ -684,6 +685,7 @@ class TLEdgeIn(
     b.corrupt := false.B
     /*runahead code begin*/
     b.hit     := true.B
+    b.acquire := true.B
     /*runahead code end*/
     (legal, b)
   }
@@ -705,6 +707,7 @@ class TLEdgeIn(
     b.corrupt := corrupt
     /*runahead code begin*/
     b.hit     := true.B
+    b.acquire := true.B
     /*runahead code end*/
     (legal, b)
   }
@@ -744,6 +747,7 @@ class TLEdgeIn(
     b.corrupt := corrupt
     /*runahead code begin*/
     b.hit     := true.B
+    b.acquire := true.B
     /*runahead code end*/
     (legal, b)
   }
@@ -762,6 +766,7 @@ class TLEdgeIn(
     b.corrupt := corrupt
     /*runahead code begin*/
     b.hit     := true.B
+    b.acquire := true.B
     /*runahead code end*/
     (legal, b)
   }
@@ -780,6 +785,7 @@ class TLEdgeIn(
     b.corrupt := false.B
     /*runahead code begin*/
     b.hit     := true.B
+    b.acquire := true.B
     /*runahead code end*/
     (legal, b)
   }

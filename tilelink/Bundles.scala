@@ -203,6 +203,7 @@ final class TLBundleB(params: TLBundleParameters)
   val corrupt = Bool() // only applies to *Data messages
   /*runahead code begin*/
   val hit     = Bool()
+  val acquire = Bool()
   /*runahead code end*/ 
 }
 

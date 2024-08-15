@@ -58,11 +58,6 @@ class FrontendIO(implicit p: Parameters) extends CoreBundle()(p) {
   val npc = Input(UInt(vaddrBitsExtended.W))
   val perf = Input(new FrontendPerfEvents())
   val progress = Output(Bool())
-  /*runahead code begin*/
-  val l2miss = Output(Bool())
-  val l2back = Output(Bool())
-  val exit_miss_back = Output(Bool())
-  /*runahead code end*/
 }
 
 class Frontend(val icacheParams: ICacheParams, staticIdForMetadataUseOnly: Int)(implicit p: Parameters) extends LazyModule {
@@ -93,11 +88,7 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
   val clock_en_reg = Reg(Bool())
   val clock_en = clock_en_reg || io.cpu.might_request
   io.cpu.clock_enabled := clock_en
-  assert(!(io.cpu.req.valid || io.cpu.sfence.valid || io.cpu.flush_icache || io.cpu.bht_update.valid || io.cpu.btb_update.valid) || io.cpu.might_request
-   /*runahead code begin*/
-   || true.B
-   /*runahead code end*/
-   )
+  assert(!(io.cpu.req.valid || io.cpu.sfence.valid || io.cpu.flush_icache || io.cpu.bht_update.valid || io.cpu.btb_update.valid) || io.cpu.might_request)
   val gated_clock =
     if (!rocketParams.clockGate) clock
     else ClockGate(clock, clock_en, "icache_clock_gate")
@@ -137,10 +128,8 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
   val s2_replay = Wire(Bool())
   s2_replay := (s2_valid && !fq.io.enq.fire) || RegNext(s2_replay && !s0_valid, true.B)
   val npc = Mux(s2_replay, s2_pc, predicted_npc)
+
   s1_pc := io.cpu.npc
-  /*runahead code begin*/
-  dontTouch(io.cpu.exit_miss_back)
-  /*runahead code end*/  
   // consider RVC fetches across blocks to be non-speculative if the first
   // part was non-speculative
   val s0_speculative =
@@ -202,10 +191,6 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
 
   if (usingBTB) {
     val btb = Module(new BTB)
-    /*runahead code begin*/
-    btb.io.l2back := io.cpu.l2back
-    btb.io.l2miss := io.cpu.l2miss
-    /*runahead code end*/
     btb.io.flush := false.B
     btb.io.req.valid := false.B
     btb.io.req.bits.addr := s1_pc
