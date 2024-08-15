@@ -184,6 +184,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
 
 /*runahead code begin*/
       dontTouch(io.dmem.perf)
+      dontTouch(io.ptw.perf)
 /*runahead code end*/
 
   val pipelinedMul = usingMulDiv && mulDivParams.mulUnroll == xLen
@@ -265,7 +266,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val mem_rh_load = Reg(Bool())
   val mem_rh_store = Reg(Bool())
   val mem_rh_hit = Reg(Bool())
-  val mem_rh_load_resp = Reg(Bool())
+//  val mem_rh_load_resp = Reg(Bool())
   val mem_hit_ptr = Reg(Bits())
   /*runahead code end*/
   val mem_reg_inst = Reg(Bits())
@@ -300,7 +301,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val s2_db_flag = RegNext(s1_db_flag,init = false.B)
   val s3_db_flag = RegNext(s2_db_flag,init = false.B)
   val exit_miss_back = Wire(Bool())
-  val wb_rh_load_resp = Reg(Bool())
+//  val wb_rh_load_resp = Reg(Bool())
   val wb_hit_ptr = Reg(Bits())
   /*runahead code end*/
   val wb_reg_mem_size = Reg(UInt())
@@ -771,11 +772,11 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     mem_dmem_req_inv := ex_dmem_req_inv
     mem_rh_hit := ex_rh_hit
     mem_hit_ptr := ex_hit_ptr
-    when((ex_rh_load === true.B) && (runahead_flag === true.B) && (ex_rh_hit === true.B)){//load the data
-      mem_rh_load_resp := true.B
-    }.otherwise{
-      mem_rh_load_resp := false.B
-    }
+    // when((ex_rh_load === true.B) && (runahead_flag === true.B) && (ex_rh_hit === true.B)){//load the data
+    //   mem_rh_load_resp := true.B
+    // }.otherwise{
+    //   mem_rh_load_resp := false.B
+    // }
     /*runahead code end*/
     mem_reg_sfence := ex_sfence
     mem_reg_btb_resp := ex_reg_btb_resp
@@ -865,7 +866,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     wb_reg_load := mem_reg_load
     wb_dmem_req_inv := mem_dmem_req_inv
     wb_rh_hit := mem_rh_hit
-    wb_rh_load_resp := mem_rh_load_resp
+//    wb_rh_load_resp := mem_rh_load_resp
     wb_hit_ptr := mem_hit_ptr
     /*runahead code end*/
 
@@ -909,18 +910,17 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   take_pc_wb := replay_wb || wb_xcpt || csr.io.eret || wb_reg_flush_pipe
 
   // writeback arbitration
-  val dmem_resp_xpu = !io.dmem.resp.bits.tag(0).asBool ||
+  val dmem_resp_xpu = !io.dmem.resp.bits.tag(0).asBool //||
   /*runahead code begin*/ 
-  (wb_rh_load_resp === true.B)
+  //(wb_rh_load_resp === true.B)
   /*runahead code end*/
   val dmem_resp_fpu =  io.dmem.resp.bits.tag(0).asBool
   /*runahead code begin*/
   //val dmem_resp_waddr = io.dmem.resp.bits.tag(5, 1)
-  val dmem_resp_waddr = Mux(wb_rh_load_resp, wb_waddr, io.dmem.resp.bits.tag(5, 1))
+  val dmem_resp_waddr = Mux(runahead_flag && wb_rh_hit && !s0_db_flag, wb_waddr, io.dmem.resp.bits.tag(5, 1))
   /*runahead code end*/
-  val dmem_resp_valid = (io.dmem.resp.valid && io.dmem.resp.bits.has_data ||
-  /*runahead code begin*/
-  (wb_rh_load_resp === true.B)) && !exit_miss_back
+  val dmem_resp_valid = io.dmem.resp.valid && io.dmem.resp.bits.has_data && 
+  !exit_miss_back
   /*runahead code end*/
   val dmem_resp_replay = dmem_resp_valid && io.dmem.resp.bits.replay
 
@@ -972,7 +972,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val rf_waddr = Mux(ll_wen, ll_waddr, wb_waddr)
   val rf_wdata = 
                 /*runahead code begin*/
-                 Mux(dmem_resp_valid && dmem_resp_xpu && (runahead_flag === true.B) && (wb_rh_hit === true.B) && !s0_db_flag, rhbuffer_data(wb_hit_ptr),
+                 Mux(runahead_flag && wb_rh_hit && !s0_db_flag, rhbuffer_data(wb_hit_ptr),
                 /*runahead code end*/
                  Mux(dmem_resp_valid && dmem_resp_xpu, io.dmem.resp.bits.data(xLen-1, 0),
                  Mux(ll_wen, ll_wdata,
