@@ -729,6 +729,7 @@ class TLEdgeIn(
     b.corrupt := corrupt
     /*runahead code beigin*/
     b.hit     := true.B
+    b.acquire := true.B
     /*runahead code end*/
     (legal, b)
   }

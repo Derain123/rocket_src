@@ -53,6 +53,24 @@ class RAS(nras: Int) {
   }
   def clear(): Unit = count := 0.U
   def isEmpty: Bool = count === 0.U
+/*runahead code begin*/
+    def ras_copy(rhcountout: UInt, rhposout: UInt, rhstackout: Vec[UInt]): Unit = {
+    require(rhstackout.length == nras, "the size of rhstack must be equal to nras")
+      rhcountout := count
+      rhposout := pos
+      for(i <- 0 until nras) {
+        rhstackout(i) := stack(i)
+      }
+  }
+  def ras_return(rhcountin: UInt, rhposin: UInt, rhstackin: Vec[UInt]): Unit = {
+    require(rhstackin.length == nras, "the size of rhstack must be equal to nras")
+      count := rhcountin
+      pos := rhposin
+      for(i <- 0 until nras) {
+        stack(i) := rhstackin(i)
+      }
+  }
+  /*runahead code end*/
 
   private val count = RegInit(0.U(log2Up(nras+1).W))
   private val pos = RegInit(0.U(log2Up(nras).W))
@@ -113,6 +131,14 @@ class BHT(params: BHTParams)(implicit val p: Parameters) extends HasCoreParamete
   def advanceHistory(taken: Bool): Unit = {
     history := Cat(taken, history >> 1)
   }
+  /*runahead code begin*/
+  def copyHistory(): UInt = {
+    history
+  }
+  def returnHistory(rhHistory: UInt): Unit = {
+    history := rhHistory
+  }
+  /*runahead code end*/
 
   private val table = Mem(params.nEntries, UInt(params.counterLength.W))
   val history = RegInit(0.U(params.historyLength.W))
@@ -195,7 +221,18 @@ class BTB(implicit p: Parameters) extends BtbModule {
     val ras_update = Flipped(Valid(new RASUpdate))
     val ras_head = Valid(UInt(vaddrBits.W))
     val flush = Input(Bool())
+    /*runahead code begin*/
+    val l2back = Input(Bool())
+    val l2miss = Input(Bool())
+    /*runahead code end*/
   })
+
+  /*runahead code begin*/
+  val RhHistoryReg = RegInit(0.U(btbParams.bhtParams.map(_.historyLength).getOrElse(1).W))
+  val RhCountReg = RegInit(0.U(log2Up(btbParams.nRAS+1).W))
+  val RhPosReg = RegInit(0.U(log2Up(btbParams.nRAS).W))
+  val RhStackReg = Reg(Vec(btbParams.nRAS,UInt()))
+  /*runahead code end*/
 
   val idxs = Reg(Vec(entries, UInt((matchBits - log2Up(coreInstBytes)).W)))
   val idxPages = Reg(Vec(entries, UInt(log2Up(nPages).W)))
@@ -305,6 +342,13 @@ class BTB(implicit p: Parameters) extends BtbModule {
     val bht = new BHT(Annotated.params(this, btbParams.bhtParams.get))
     val isBranch = (idxHit & cfiType.map(_ === CFIType.branch).asUInt).orR
     val res = bht.get(io.req.bits.addr)
+    /*runahead code begin*/
+    when(io.l2miss) {
+      RhHistoryReg := bht.copyHistory()
+    } .elsewhen(io.l2back) {
+      bht.returnHistory(RhHistoryReg)
+    } .otherwise {
+    /*runahead code end*/
     when (io.bht_advance.valid) {
       bht.advanceHistory(io.bht_advance.bits.bht.taken)
     }
@@ -318,6 +362,7 @@ class BTB(implicit p: Parameters) extends BtbModule {
         bht.resetHistory(io.bht_update.bits.prediction)
       }
     }
+    }
     when (!res.taken && isBranch) { io.resp.bits.taken := false.B }
     io.resp.bits.bht := res
   }
@@ -330,12 +375,20 @@ class BTB(implicit p: Parameters) extends BtbModule {
     when (!ras.isEmpty && doPeek) {
       io.resp.bits.target := ras.peek
     }
+    /*runahead code begin*/
+    when(io.l2miss) {
+      ras.ras_copy(RhCountReg, RhPosReg, RhStackReg)
+    } .elsewhen(io.l2back) {
+      ras.ras_return(RhCountReg, RhPosReg, RhStackReg)
+    } .otherwise {
+    /*runahead code end*/
     when (io.ras_update.valid) {
       when (io.ras_update.bits.cfiType === CFIType.call) {
         ras.push(io.ras_update.bits.returnAddr)
       }.elsewhen (io.ras_update.bits.cfiType === CFIType.ret) {
         ras.pop()
       }
+    }
     }
   }
 }

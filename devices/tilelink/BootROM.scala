@@ -73,6 +73,7 @@ object BootROM {
     bootROMDomainWrapper.clockNode := tlbus.fixedClockNode
 
     val bootROMResetVectorSourceNode = BundleBridgeSource[UInt]()
+
     lazy val contents = {
       val romdata = Files.readAllBytes(Paths.get(params.contentFileName))
       val rom = ByteBuffer.wrap(romdata)
