@@ -623,7 +623,9 @@ class TLEdgeIn(
     b.corrupt := false.B
     /*runahead code begin*/
     b.hit     := true.B
-    b.acquire := true.B
+    b.acquire := VecInit(Seq.fill(5)(false.B))
+    b.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
+    b.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
     /*runahead code end*/
     (legal, b)
   }
@@ -685,7 +687,9 @@ class TLEdgeIn(
     b.corrupt := false.B
     /*runahead code begin*/
     b.hit     := true.B
-    b.acquire := true.B
+    b.acquire := VecInit(Seq.fill(5)(false.B))
+    b.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
+    b.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
     /*runahead code end*/
     (legal, b)
   }
@@ -707,7 +711,9 @@ class TLEdgeIn(
     b.corrupt := corrupt
     /*runahead code begin*/
     b.hit     := true.B
-    b.acquire := true.B
+    b.acquire := VecInit(Seq.fill(5)(false.B))
+    b.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
+    b.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
     /*runahead code end*/
     (legal, b)
   }
@@ -748,7 +754,9 @@ class TLEdgeIn(
     b.corrupt := corrupt
     /*runahead code begin*/
     b.hit     := true.B
-    b.acquire := true.B
+    b.acquire := VecInit(Seq.fill(5)(false.B))
+    b.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
+    b.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
     /*runahead code end*/
     (legal, b)
   }
@@ -767,7 +775,9 @@ class TLEdgeIn(
     b.corrupt := corrupt
     /*runahead code begin*/
     b.hit     := true.B
-    b.acquire := true.B
+    b.acquire := VecInit(Seq.fill(5)(false.B))
+    b.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
+    b.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
     /*runahead code end*/
     (legal, b)
   }
@@ -786,7 +796,9 @@ class TLEdgeIn(
     b.corrupt := false.B
     /*runahead code begin*/
     b.hit     := true.B
-    b.acquire := true.B
+    b.acquire := VecInit(Seq.fill(5)(false.B))
+    b.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
+    b.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
     /*runahead code end*/
     (legal, b)
   }

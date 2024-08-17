@@ -92,6 +92,11 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     val sinkd     = Flipped(Valid(new SinkDResponse(params)))
     val sinke     = Flipped(Valid(new SinkEResponse(params)))
     val nestedwb  = Flipped(new NestedWriteback(params))
+    /*runahead code begin*/
+    val acquire = Output(Bool())
+    val request_tag = Output(UInt(params.tagBits.W))
+    val request_set = Output(UInt(params.setBits.W))
+    /*runahead code end*/
   })
 
   val request_valid = RegInit(false.B)
@@ -196,7 +201,12 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   /*runahead code begin*/
   // io.b1.bits.hit := io.directory.bits.hit
   io.schedule.bits.b.bits.hit     := io.directory.bits.hit
-  io.schedule.bits.b.bits.acquire := s_acquire
+  io.acquire := !s_acquire & RegNext(s_acquire)
+  io.request_tag := request.tag
+  io.request_set := request.set
+  io.schedule.bits.b.bits.acquire := VecInit(Seq.fill(5)(false.B))
+  io.schedule.bits.b.bits.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
+  io.schedule.bits.b.bits.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
   // io.sinkd.bits.hit     := io.directory.bits.hit
   //io.schedule.bits.d.bits.hit := io.directory.bits.hit
   // io.b1.ready := false.B

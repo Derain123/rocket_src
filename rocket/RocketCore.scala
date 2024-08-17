@@ -324,32 +324,36 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val l2miss_addr = RegInit(0.U(40.W))
   val runahead_tag = RegInit(VecInit(Seq.fill(4)(0.U(7.W))))
   val runahead_addr = RegInit(VecInit(Seq.fill(4)(0.U(40.W))))
-  val dcache_miss = RegInit(VecInit(Seq.fill(4)(false.B)))
-  val s1_dcache_miss = RegNext(dcache_miss)
-  val s2_dcache_miss = RegNext(s1_dcache_miss)
-  val mshr_l2dcache_miss = RegInit(VecInit(Seq.fill(4)(false.B)))
-  val l2cache_miss = RegInit(false.B)
+
+  val mshr_l2dcache_miss = Wire(Vec(4, Bool()))
+  val s1_mshr_l2dcache_miss = RegNext(mshr_l2dcache_miss)
+  val l2cache_miss = Wire(Bool())
   val runahead_enq_ptr_value = RegInit(VecInit(Seq.fill(4)(0.U(4.W))))
   val runahead_deq_ptr_value = RegInit(VecInit(Seq.fill(4)(0.U(4.W))))
-  val s1_mshr_state = RegNext(io.dmem.mshr_state)
   val s1_mshr_enq_ptr_value = RegInit(VecInit(Seq.fill(4)(0.U(4.W))))
   val s1_mshr_deq_ptr_value = RegInit(VecInit(Seq.fill(4)(0.U(4.W))))
   s1_mshr_enq_ptr_value := io.dmem.mshr_enq_ptr_value
   s1_mshr_deq_ptr_value := io.dmem.mshr_deq_ptr_value
   val runahead_l2miss_events = RegInit(VecInit(Seq.fill(4)(false.B)))
   val block_addr = Wire(Vec(4, UInt(34.W)))
-  val rfinvfile_block_miss = Wire(Vec(4,Bool()))
+  val l2miss_block_match = Wire(Vec(4,Bool()))
+  // val ex_l2set_match = Wire(Vec(4,Bool())) //TODO:l1miss and l2set_match dont set mshr
 
   val rcu = Module(new RCU(RCU_Params(xLen)))
   val runahead_flag = Wire(Bool())
   val dmem_req_addr = Wire(Bits())
   val s0_db_flag = Wire(Bool())
-  rfinvfile_block_miss(0) :=  runahead_flag && dmem_req_addr(39,6) === block_addr(0) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD
-  rfinvfile_block_miss(1) :=  runahead_flag && dmem_req_addr(39,6) === block_addr(1) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && runahead_l2miss_events(1)
-  rfinvfile_block_miss(2) :=  runahead_flag && dmem_req_addr(39,6) === block_addr(2) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && runahead_l2miss_events(2)
-  rfinvfile_block_miss(3) :=  runahead_flag && dmem_req_addr(39,6) === block_addr(3) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && runahead_l2miss_events(3)
+  l2miss_block_match(0) :=  runahead_flag && dmem_req_addr(39,6) === block_addr(0) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD
+  l2miss_block_match(1) :=  runahead_flag && dmem_req_addr(39,6) === block_addr(1) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && runahead_l2miss_events(1)
+  l2miss_block_match(2) :=  runahead_flag && dmem_req_addr(39,6) === block_addr(2) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && runahead_l2miss_events(2)
+  l2miss_block_match(3) :=  runahead_flag && dmem_req_addr(39,6) === block_addr(3) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && runahead_l2miss_events(3)
+
+  // l2set_match(2) := runahead_flag && dmem_req_addr(12, 6) === io.dmem.l2request_set(2) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD 
+  // l2set_match(1) := runahead_flag && dmem_req_addr(12, 6) === io.dmem.l2request_set(1) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && runahead_l2miss_events(1)
+  // l2set_match(2) := runahead_flag && dmem_req_addr(12, 6) === io.dmem.l2request_set(2) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && runahead_l2miss_events(2)
+  // l2set_match(3) := runahead_flag && dmem_req_addr(12, 6) === io.dmem.l2request_set(2) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && runahead_l2miss_events(3)
   //dontTouch(take_pc)
-  dontTouch(rfinvfile_block_miss)
+  dontTouch(l2miss_block_match)
   dontTouch(block_addr)
   dontTouch(runahead_flag)
   /*runahead code end*/
@@ -1167,13 +1171,13 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   }
 //mshr 不写回
 when(runahead_state === s_runahead) {
- when(l2cache_miss && s2_dcache_miss(1)){
+ when(mshr_l2dcache_miss(1)){
   runahead_l2miss_events(1) := true.B
  }
- when(l2cache_miss && s2_dcache_miss(2)) {
+ when(mshr_l2dcache_miss(2)) {
   runahead_l2miss_events(2) := true.B
  }
- when(l2cache_miss && s2_dcache_miss(3)) {
+ when(mshr_l2dcache_miss(3)) {
   runahead_l2miss_events(3) := true.B
  }
 }.elsewhen(runahead_state === s_runahead && io.dmem.resp.valid) {
@@ -1215,36 +1219,47 @@ when(runahead_state === s_runahead) {
   }
 }
 //l2dcache miss signal
-l2cache_miss := io.dmem.l2acquire && !RegNext(io.dmem.l2acquire)
-for(i <- s1_mshr_state.indices) {
-  dcache_miss(i) := (io.dmem.mshr_state(i) === 5.U) && (s1_mshr_state(i) === 4.U)
-}
-for(i <- s1_mshr_state.indices) {
-  mshr_l2dcache_miss(i) := l2cache_miss && s2_dcache_miss(i)
+l2cache_miss := io.dmem.l2acquire.orR
+
+for(i <- io.dmem.mshr_state.indices) {
+  mshr_l2dcache_miss(i) := io.dmem.mshr_state(i) =/= 0.U && (0 until 5).map { j =>
+    io.dmem.l2acquire(j) &&
+    io.dmem.mshr_addr(i)(27, 13) === io.dmem.l2request_tag(j) &&
+    io.dmem.mshr_addr(i)(12, 6) === io.dmem.l2request_set(j)
+  }.reduce(_ || _)
 }
 
+// for(i <- io.dmem.mshr_state.indices) {
+//   mshr_l2dcache_miss(i) := io.dmem.mshr_state(i) =/= 0.U && 
+//   (io.dmem.l2acquire(0) && io.dmem.mshr_addr(i)(27, 13) === io.dmem.l2request_tag(0) && io.dmem.mshr_addr(i)(12, 6) === io.dmem.l2request_set(0) ||
+//    io.dmem.l2acquire(1) && io.dmem.mshr_addr(i)(27, 13) === io.dmem.l2request_tag(1) && io.dmem.mshr_addr(i)(12, 6) === io.dmem.l2request_set(1) ||
+//    io.dmem.l2acquire(2) && io.dmem.mshr_addr(i)(27, 13) === io.dmem.l2request_tag(2) && io.dmem.mshr_addr(i)(12, 6) === io.dmem.l2request_set(2) ||
+//    io.dmem.l2acquire(3) && io.dmem.mshr_addr(i)(27, 13) === io.dmem.l2request_tag(3) && io.dmem.mshr_addr(i)(12, 6) === io.dmem.l2request_set(3) ||
+//    io.dmem.l2acquire(4) && io.dmem.mshr_addr(i)(27, 13) === io.dmem.l2request_tag(4) && io.dmem.mshr_addr(i)(12, 6) === io.dmem.l2request_set(4) )
+
+// }
+
 dontTouch(l2cache_miss)
-dontTouch(mshr_l2dcache_miss)
-dontTouch(dcache_miss)
+dontTouch(s1_mshr_l2dcache_miss)
 dontTouch(runahead_tag)
 dontTouch(runahead_deq_ptr_value)
 when(runahead_posedge) {
   l2miss_tag := mshr_l2miss_tag
   l2miss_addr := mshr_l2miss_addr
 }.elsewhen(runahead_state === s_runahead) {
-  when(l2cache_miss && s2_dcache_miss(1)) {
+  when(mshr_l2dcache_miss(1)) {
     runahead_tag(1) := io.dmem.mshr_tag(1)
     runahead_addr(1) := io.dmem.mshr_addr(1)
     runahead_enq_ptr_value(1) := io.dmem.mshr_enq_ptr_value(1)
     runahead_deq_ptr_value(1) := io.dmem.mshr_deq_ptr_value(1)
   }
-  when(l2cache_miss && s2_dcache_miss(2)) {
+  when(mshr_l2dcache_miss(2)) {
     runahead_tag(2) := io.dmem.mshr_tag(2)
     runahead_addr(2) := io.dmem.mshr_addr(2)
     runahead_enq_ptr_value(2) := io.dmem.mshr_enq_ptr_value(2)
     runahead_deq_ptr_value(2) := io.dmem.mshr_deq_ptr_value(2)
   }
-  when(l2cache_miss && s2_dcache_miss(3)) {
+  when(mshr_l2dcache_miss(3)) {
     runahead_tag(3) := io.dmem.mshr_tag(3)
     runahead_addr(3) := io.dmem.mshr_addr(3)
     runahead_enq_ptr_value(3) := io.dmem.mshr_enq_ptr_value(3)
@@ -1328,6 +1343,9 @@ when(runahead_posedge) {
     runahead_state := s_runahead_wait_req
   }
   dontTouch(inv_events)
+  dontTouch(io.dmem.l2acquire)
+  dontTouch(io.dmem.l2request_set)
+  dontTouch(io.dmem.l2request_tag)
   dontTouch(runahead_enter)
   dontTouch(runahead_posedge)
   
@@ -1351,23 +1369,23 @@ when(runahead_posedge) {
 
   sboard.clear((runahead_flag === true.B) && s2_runahead_posedge, l2miss_tag(6,2))//pretend stall for dependency
   //exit when l2miss stall in runahead(maybe mshr_l2dcahe_miss拉高之前，多个tag写入了mshr)
-  sboard.clear(runahead_flag && mshr_l2dcache_miss(1),runahead_tag(1)(6,2))
-  sboard.clear(runahead_flag && mshr_l2dcache_miss(2),runahead_tag(2)(6,2))
-  sboard.clear(runahead_flag && mshr_l2dcache_miss(3),runahead_tag(3)(6,2))
+  sboard.clear(runahead_flag && s1_mshr_l2dcache_miss(1),runahead_tag(1)(6,2))
+  sboard.clear(runahead_flag && s1_mshr_l2dcache_miss(2),runahead_tag(2)(6,2))
+  sboard.clear(runahead_flag && s1_mshr_l2dcache_miss(3),runahead_tag(3)(6,2))
   val rf_invfile = new Scoreboard(32, true)
   rf_invfile.set((runahead_flag === true.B) && s1_runahead_posedge,id_waddr) //导致进入l2missstall的inst 对应的目标寄存器置无效(可能不是寄存器依赖，是set match依赖)
   rf_invfile.set((runahead_flag === true.B) && s1_runahead_posedge, l2miss_tag(6,2))
   //set the inv_rf of l2miss_stall
-  rf_invfile.set((runahead_flag === true.B) && mshr_l2dcache_miss(1), runahead_tag(1)(6,2))
-  rf_invfile.set((runahead_flag === true.B) && mshr_l2dcache_miss(2), runahead_tag(2)(6,2))
-  rf_invfile.set((runahead_flag === true.B) && mshr_l2dcache_miss(3), runahead_tag(3)(6,2))
+  rf_invfile.set((runahead_flag === true.B) && s1_mshr_l2dcache_miss(1), runahead_tag(1)(6,2))
+  rf_invfile.set((runahead_flag === true.B) && s1_mshr_l2dcache_miss(2), runahead_tag(2)(6,2))
+  rf_invfile.set((runahead_flag === true.B) && s1_mshr_l2dcache_miss(3), runahead_tag(3)(6,2))
 
   val ex_rfinvfile_propogation = checkHazards(rh_hazard_targets, rd => rf_invfile.read(rd))
 
-  rf_invfile.set((runahead_flag === true.B) && ex_rfinvfile_propogation || rfinvfile_block_miss.orR, ex_waddr) //although invalid, it will still writeback to rf
+  rf_invfile.set((runahead_flag === true.B) && ex_rfinvfile_propogation || l2miss_block_match.orR, ex_waddr) //although invalid, it will still writeback to rf
   val rf_invfile_clear = Reg(Bool())
   rf_invfile_clear := !ctrl_killd || csr.io.interrupt || ibuf.io.inst(0).bits.replay
-  rf_invfile.clear((runahead_flag === true.B) && !ex_rfinvfile_propogation && !s1_runahead_posedge && rf_invfile_clear && !rfinvfile_block_miss.orR, ex_waddr) // to do: add a ctrl_sig, judge if a load addr is valid
+  rf_invfile.clear((runahead_flag === true.B) && !ex_rfinvfile_propogation && !s1_runahead_posedge && rf_invfile_clear && !l2miss_block_match.orR, ex_waddr) // to do: add a ctrl_sig, judge if a load addr is valid
   val invfile = WireInit(VecInit(Seq.fill(31)(0.U(1.W))))
   for(i <- 0 until 31) {
     invfile(i) := rf_invfile.read(i.U).asUInt()
@@ -1377,7 +1395,6 @@ when(runahead_posedge) {
   dontTouch(id_raddr2)
   dontTouch(id_waddr)
   dontTouch(ex_rfinvfile_propogation)
-  dontTouch(io.dmem.l2acquire)
   /*runahead invfile end*/
 
   /*runahead buffer beign*/
@@ -1469,7 +1486,7 @@ when(runahead_posedge) {
   block_addr(1) := runahead_addr(1)(39,6)
   block_addr(2) := runahead_addr(2)(39,6)
   block_addr(3) := runahead_addr(3)(39,6)
-  ex_dmem_req_inv := ex_rh_hit || ex_rh_load && ex_rfinvfile_propogation || rfinvfile_block_miss.orR
+  ex_dmem_req_inv := ex_rh_hit || ex_rh_load && ex_rfinvfile_propogation || l2miss_block_match.orR
   val s1_dmem_l2hit = RegNext(io.dmem.l2hit, init = true.B)
   val l2hit_nesedge = s1_dmem_l2hit && !io.dmem.l2hit
   val idx_match_l2miss = l2hit_nesedge && io.dmem.mshr_state(0) === 5.U && io.dmem.idx_match
@@ -1577,7 +1594,7 @@ when(runahead_posedge) {
   require(coreParams.dcacheReqTagBits >= ex_dcache_tag.getWidth)
   //io.dmem.req.bits.tag  := ex_dcache_tag
   /*runahead code begin*/
-  io.dmem.req.bits.tag  := Mux(rfinvfile_block_miss.orR, 0.U, ex_dcache_tag)
+  io.dmem.req.bits.tag  := Mux(l2miss_block_match.orR, 0.U, ex_dcache_tag)
   /*runahead code end*/
   io.dmem.req.bits.cmd  := ex_ctrl.mem_cmd
   io.dmem.req.bits.size := ex_reg_mem_size
@@ -1585,7 +1602,7 @@ when(runahead_posedge) {
   io.dmem.req.bits.phys := false.B
   //io.dmem.req.bits.addr := encodeVirtualAddress(ex_rs(0), alu.io.adder_out)
   /*runahead code begin*/
-  io.dmem.req.bits.addr := Mux(rfinvfile_block_miss.orR, 0.U, encodeVirtualAddress(ex_rs(0), alu.io.adder_out))
+  io.dmem.req.bits.addr := Mux(l2miss_block_match.orR, 0.U, encodeVirtualAddress(ex_rs(0), alu.io.adder_out))
   /*runahead code end*/
   io.dmem.req.bits.idx.foreach(_ := io.dmem.req.bits.addr)
   io.dmem.req.bits.dprv := Mux(ex_reg_hls, csr.io.hstatus.spvp, csr.io.status.dprv)

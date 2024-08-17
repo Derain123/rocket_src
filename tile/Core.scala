@@ -181,7 +181,9 @@ trait HasCoreIO extends HasTileParameters {
     val pc    = Output(UInt(40.W))  //wb_reg_pc
     // val hit   = Input(Bool())
     val hit   = Output(Bool())
-    val acquire = Output(Bool())
+    val acquire = Output(Vec(5, Bool()))
+    val request_set = Output(Vec(5, Bits(7.W)))
+//    val request_tag = Output(Vec(5, Bits(15.W)))
     /*runahead code end*/
   }
 }

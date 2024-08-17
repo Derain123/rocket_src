@@ -156,10 +156,9 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
 
   /*runahead code begin*/
   sourceB.io.req.bits.hit := c_mshr.io.schedule.bits.b.bits.hit
-  val s_acquire_signals = abc_mshrs.map(_.io.schedule.bits.b.bits.acquire)
-  val all_s_acquire_nand = !s_acquire_signals.reduce(_&_)
-  dontTouch(all_s_acquire_nand)
-  sourceB.io.req.bits.acquire := all_s_acquire_nand
+  sourceB.io.req.bits.acquire := abc_mshrs.map(_.io.acquire)
+  sourceB.io.req.bits.request_set := abc_mshrs.map(_.io.request_set)
+  sourceB.io.req.bits.request_tag := abc_mshrs.map(_.io.request_tag)
   //sourceD.io.req.bits.hit := c_mshr.io.schedule.bits.d.bits.hit
   //c_mshr.io.sinkd.bits.hit := sinkD.io.resp.bits.hit
   /*runahead code end*/

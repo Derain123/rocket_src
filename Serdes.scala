@@ -232,7 +232,9 @@ class TLMergedBundle(params: TLBundleParameters, hasCorruptDenied: Boolean = tru
   val last = Bool()
   /*runahead code begin*/
   val hit  = Bool()
-  val acquire = Bool()
+  val acquire = Vec(5, Bool())
+  val request_tag = Vec(5,UInt(15.W))
+  val request_set = Vec(5,UInt(7.W))
   /*runahead code end*/
 
   def isA(dummy: Int = 0) = (chanId === TLMergedBundle.TL_CHAN_ID_A)
@@ -267,7 +269,9 @@ object TLMergedBundle {
     merged.last    := true.B
     /*runahead code begin*/
     merged.hit     := true.B
-    merged.acquire := true.B
+    merged.acquire := VecInit(Seq.fill(5)(false.B))
+    merged.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
+    merged.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
     /*runahead code end*/
     merged
   }
@@ -289,7 +293,9 @@ object TLMergedBundle {
     merged.last    := true.B
     /*runahead code begin*/
     merged.hit     := true.B
-    merged.acquire := true.B
+    merged.acquire := VecInit(Seq.fill(5)(false.B))
+    merged.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
+    merged.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
     /*runahead code end*/
     merged
   }
@@ -314,7 +320,9 @@ object TLMergedBundle {
     merged.last    := true.B
     /*runahead code begin*/
     merged.hit     := true.B
-    merged.acquire := true.B
+    merged.acquire := VecInit(Seq.fill(5)(false.B))
+    merged.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
+    merged.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
     /*runahead code end*/
     merged
   }
@@ -339,7 +347,9 @@ object TLMergedBundle {
     merged.last    := true.B
     /*runahead code begin*/
     merged.hit     := true.B
-    merged.acquire := true.B
+    merged.acquire := VecInit(Seq.fill(5)(false.B))
+    merged.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
+    merged.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
     /*runahead code end*/
     merged
   }
@@ -364,7 +374,9 @@ object TLMergedBundle {
     merged.last    := true.B
     /*runahead code begin*/
     merged.hit     := true.B
-    merged.acquire := true.B
+    merged.acquire := VecInit(Seq.fill(5)(false.B))
+    merged.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
+    merged.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
     /*runahead code end*/
     merged
   }
@@ -433,6 +445,8 @@ object TLMergedBundle {
     /*runahead code begin*/
     b.hit     := chan.hit
     b.acquire := chan.acquire
+    b.request_set := chan.request_set
+    b.request_tag := chan.request_tag
     /*runahead code end*/
     b.mask    := chan.union
     b

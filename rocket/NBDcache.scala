@@ -183,7 +183,7 @@ class MSHR(id: Int)(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCach
   /*runahead code begin*/
   //val idx_match = req_idx === io.req_bits.addr(untagBits-1,blockOffBits)
   dontTouch(io.runahead_flag)
-  val idx_match = Mux(io.runahead_flag && req_block_addr =/= (io.req_bits.addr >> blockOffBits) << blockOffBits,
+  val idx_match = Mux(io.runahead_flag && req_block_addr >> blockOffBits =/= io.req_bits.addr >> blockOffBits,
                       false.B,req_idx === io.req_bits.addr(untagBits-1,blockOffBits))
   /*runahead code end*/
 
@@ -1046,6 +1046,8 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   dontTouch(io.cpu.l2hit)
   dontTouch(l2_hit)
   io.cpu.l2acquire :=tl_out.b.bits.acquire
+  io.cpu.l2request_set := tl_out.b.bits.request_set
+  io.cpu.l2request_tag := tl_out.b.bits.request_tag
   /*runahead code end*/
 
   // store->load bypassing

@@ -183,7 +183,9 @@ class HellaCacheIO(implicit p: Parameters) extends CoreBundle()(p) {
   val perf = Input(new HellaCachePerfEvents())
   /*runahead code begin*/
   val l2hit = Input(Bool())
-  val l2acquire = Input(Bool())
+  val l2acquire = Input(Vec(5, Bool()))
+  val l2request_set = Input(Vec(5, Bits(7.W)))
+  val l2request_tag = Input(Vec(5, Bits(15.W)))
 
   val mshr_tag = Input(Vec(4, Bits(7.W)))
   val mshr_cmd = Input(Vec(4, Bits(5.W)))

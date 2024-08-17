@@ -203,7 +203,9 @@ final class TLBundleB(params: TLBundleParameters)
   val corrupt = Bool() // only applies to *Data messages
   /*runahead code begin*/
   val hit     = Bool()
-  val acquire = Bool()
+  val acquire = Vec(5, Bool())
+  val request_tag = Vec(5,UInt(15.W))
+  val request_set = Vec(5,UInt(7.W))
   /*runahead code end*/ 
 }
 
