@@ -187,16 +187,17 @@ class HellaCacheIO(implicit p: Parameters) extends CoreBundle()(p) {
   val l2request_set = Input(Vec(5, Bits(7.W)))
   val l2request_tag = Input(Vec(5, Bits(15.W)))
 
-  val mshr_tag = Input(Vec(4, Bits(7.W)))
-  val mshr_cmd = Input(Vec(4, Bits(5.W)))
-  val mshr_addr = Input(Vec(4, Bits(40.W)))
-  val mshr_state = Input(Vec(4, Bits(4.W)))
-  val mshr_enq_ptr_value = Input(Vec(4, Bits(4.W)))
-  val mshr_deq_ptr_value = Input(Vec(4, Bits(4.W)))
+  val mshr_tag = Input(Vec(tileParams.dcache.get.nMSHRs, Bits(7.W)))
+  val mshr_cmd = Input(Vec(tileParams.dcache.get.nMSHRs, Bits(5.W)))
+  val mshr_addr = Input(Vec(tileParams.dcache.get.nMSHRs, Bits(40.W)))
+  val mshr_state = Input(Vec(tileParams.dcache.get.nMSHRs, Bits(4.W)))
+  val mshr_enq_ptr_value = Input(Vec(tileParams.dcache.get.nMSHRs, Bits(4.W)))
+  val mshr_deq_ptr_value = Input(Vec(tileParams.dcache.get.nMSHRs, Bits(4.W)))
   val idx_match = Input(Bool())
   val alloc_arb_out_ready = Input(Bool())
   val mshr_flag = Input(Bool())
   val runahead_flag = Output(Bool())
+  val l1miss_l2set_match = Output(Bool())
   /*runahead code end*/
 
   val keep_clock_enabled = Output(Bool()) // should D$ avoid clock-gating itself?

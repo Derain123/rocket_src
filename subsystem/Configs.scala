@@ -103,7 +103,7 @@ class WithNBigCores(
       dcache = Some(DCacheParams(
         rowBits = site(SystemBusKey).beatBits,
         /*runahead code begin*/
-        nMSHRs = 4,
+        nMSHRs = 8,
         nSets = 16,
         nWays = 4,
         /*runahead code end*/

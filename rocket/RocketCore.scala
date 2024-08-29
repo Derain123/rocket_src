@@ -266,7 +266,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val mem_rh_load = Reg(Bool())
   val mem_rh_store = Reg(Bool())
   val mem_rh_hit = Reg(Bool())
-//  val mem_rh_load_resp = Reg(Bool())
+  val mem_l2set_match = Reg(Bool())
   val mem_hit_ptr = Reg(Bits())
   /*runahead code end*/
   val mem_reg_inst = Reg(Bits())
@@ -301,7 +301,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val s2_db_flag = RegNext(s1_db_flag,init = false.B)
   val s3_db_flag = RegNext(s2_db_flag,init = false.B)
   val exit_miss_back = Wire(Bool())
-//  val wb_rh_load_resp = Reg(Bool())
+  val wb_l2set_match = Reg(Bool())
   val wb_hit_ptr = Reg(Bits())
   /*runahead code end*/
   val wb_reg_mem_size = Reg(UInt())
@@ -322,39 +322,50 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
 
   val l2miss_tag = RegInit(0.U(7.W))
   val l2miss_addr = RegInit(0.U(40.W))
-  val runahead_tag = RegInit(VecInit(Seq.fill(4)(0.U(7.W))))
-  val runahead_addr = RegInit(VecInit(Seq.fill(4)(0.U(40.W))))
+  val runahead_tag = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(7.W))))
+  val runahead_addr = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(40.W))))
 
-  val mshr_l2dcache_miss = Wire(Vec(4, Bool()))
+  val mshr_l2dcache_miss = Wire(Vec(tileParams.dcache.get.nMSHRs, Bool()))
   val s1_mshr_l2dcache_miss = RegNext(mshr_l2dcache_miss)
   val l2cache_miss = Wire(Bool())
-  val runahead_enq_ptr_value = RegInit(VecInit(Seq.fill(4)(0.U(4.W))))
-  val runahead_deq_ptr_value = RegInit(VecInit(Seq.fill(4)(0.U(4.W))))
-  val s1_mshr_enq_ptr_value = RegInit(VecInit(Seq.fill(4)(0.U(4.W))))
-  val s1_mshr_deq_ptr_value = RegInit(VecInit(Seq.fill(4)(0.U(4.W))))
-  s1_mshr_enq_ptr_value := io.dmem.mshr_enq_ptr_value
-  s1_mshr_deq_ptr_value := io.dmem.mshr_deq_ptr_value
-  val runahead_l2miss_events = RegInit(VecInit(Seq.fill(4)(false.B)))
-  val block_addr = Wire(Vec(4, UInt(34.W)))
-  val l2miss_block_match = Wire(Vec(4,Bool()))
-  // val ex_l2set_match = Wire(Vec(4,Bool())) //TODO:l1miss and l2set_match dont set mshr
+  val runahead_enq_ptr_value = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(4.W))))
+  val runahead_deq_ptr_value = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(4.W))))
+  val s1_mshr_enq_ptr_value = RegNext(io.dmem.mshr_enq_ptr_value)
+  val s1_mshr_deq_ptr_value = RegNext(io.dmem.mshr_deq_ptr_value)
+  val runahead_l2miss_events = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(false.B)))
+  val mshr_block_addr = Wire(Vec(tileParams.dcache.get.nMSHRs, UInt(34.W)))
+  val ex_l2set_match = Wire(Bool()) //TODO:l1miss and l2set_match dont set mshr(dont block_match)
+
+
 
   val rcu = Module(new RCU(RCU_Params(xLen)))
   val runahead_flag = Wire(Bool())
   val dmem_req_addr = Wire(Bits())
   val s0_db_flag = Wire(Bool())
-  l2miss_block_match(0) :=  runahead_flag && dmem_req_addr(39,6) === block_addr(0) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD
-  l2miss_block_match(1) :=  runahead_flag && dmem_req_addr(39,6) === block_addr(1) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && runahead_l2miss_events(1)
-  l2miss_block_match(2) :=  runahead_flag && dmem_req_addr(39,6) === block_addr(2) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && runahead_l2miss_events(2)
-  l2miss_block_match(3) :=  runahead_flag && dmem_req_addr(39,6) === block_addr(3) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && runahead_l2miss_events(3)
 
-  // l2set_match(2) := runahead_flag && dmem_req_addr(12, 6) === io.dmem.l2request_set(2) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD 
-  // l2set_match(1) := runahead_flag && dmem_req_addr(12, 6) === io.dmem.l2request_set(1) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && runahead_l2miss_events(1)
-  // l2set_match(2) := runahead_flag && dmem_req_addr(12, 6) === io.dmem.l2request_set(2) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && runahead_l2miss_events(2)
-  // l2set_match(3) := runahead_flag && dmem_req_addr(12, 6) === io.dmem.l2request_set(2) && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && runahead_l2miss_events(3)
+  // 使用Seq来存储所有l2miss_block_match信号
+val l2miss_block_matches = (0 until tileParams.dcache.get.nMSHRs).map { index =>
+  // 对于mshr0，不需要runahead_l2miss_events(index)的检查
+  val l2missEvent = if (index == 0) true.B else runahead_l2miss_events(index)
+
+  runahead_flag &&
+  dmem_req_addr(39, 6) === mshr_block_addr(index) &&
+  ex_ctrl.mem &&
+  ex_ctrl.mem_cmd === M_XRD &&
+  l2missEvent
+}.toSeq
+
+  ex_l2set_match := runahead_flag && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && io.dmem.req.valid && {
+    val mshr0Condition = dmem_req_addr(27, 13) =/= l2miss_addr(27, 13) && dmem_req_addr(12, 6) === l2miss_addr(12, 6) //mshr0 作为触发runahead信号
+    val otherMSHRsCondition = (1 until tileParams.dcache.get.nMSHRs).map { index =>
+        dmem_req_addr(27, 13) =/= runahead_addr(index)(27, 13) && dmem_req_addr(12, 6) === runahead_addr(index)(12, 6) && runahead_l2miss_events(index)}.reduce(_||_)
+    mshr0Condition || otherMSHRsCondition
+  }
+
   //dontTouch(take_pc)
-  dontTouch(l2miss_block_match)
-  dontTouch(block_addr)
+  dontTouch(ex_l2set_match)
+  dontTouch(wb_l2set_match)
+  dontTouch(mshr_block_addr)
   dontTouch(runahead_flag)
   /*runahead code end*/
 
@@ -641,20 +652,23 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     ex_reg_pc := ibuf.io.pc
     ex_reg_btb_resp := ibuf.io.btb_resp
     ex_reg_wphit := bpu.io.bpwatch.map { bpw => bpw.ivalid(0) }
+  }
 
-    /*runahead code begin*/
+  /*runahead code begin*/
+  when (!ctrl_killd || csr.io.interrupt || ibuf.io.inst(0).bits.replay) {
     ex_rh_load := id_ctrl.mem && id_ctrl.mem_cmd === M_XRD && (runahead_flag === true.B)
     ex_rh_store := id_ctrl.mem && id_ctrl.mem_cmd === M_XWR && (runahead_flag === true.B)
-    /*runahead code end*/
-
-
-  }
+  } .otherwise {
+    ex_rh_load := false.B
+    ex_rh_store := false.B
+  }  
+  /*runahead code end*/
 
   // replay inst in ex stage?
   val ex_pc_valid = ex_reg_valid || ex_reg_replay || ex_reg_xcpt_interrupt
   val wb_dcache_miss = wb_ctrl.mem && !io.dmem.resp.valid &&
   /*runahead code begin*/
-  !wb_dmem_req_inv && !exit_miss_back
+  !wb_dmem_req_inv && !exit_miss_back && !wb_l2set_match
   /*runahead code end*/
   val replay_ex_structural = ex_ctrl.mem && !io.dmem.req.ready ||
                              ex_ctrl.div && !div.io.req.ready
@@ -665,83 +679,6 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val ex_slow_bypass = ex_ctrl.mem_cmd === M_XSC || ex_reg_mem_size < 2.U
   val ex_sfence = usingVM.B && ex_ctrl.mem && (ex_ctrl.mem_cmd === M_SFENCE || ex_ctrl.mem_cmd === M_HFENCEV || ex_ctrl.mem_cmd === M_HFENCEG)
 
-  //*****************dcache miss counter**********************************************
-//   val counter = RegInit(0.U(32.W))
-//   val miss_detected = RegInit(false.B)
-//   val miss_events = RegInit(0.U(32.W))
-
-//   when(reset.asBool()) {
-//     counter := 0.U
-//     miss_detected := false.B
-//     miss_events := 0.U // 重置miss事件计数器
-// }.otherwise {
-//     when(wb_dcache_miss) {
-//         // 检测到miss
-//         when(!miss_detected) {
-//             miss_detected := true.B
-//         }
-//         counter := counter + 1.U
-//     }.elsewhen(miss_detected) {
-//         // miss信号从高变低
-//         when(counter > 2.U) {
-//             // printf(p"DCache miss lasted for ${counter} cycles\n")
-//             miss_events := miss_events + 40.U // 当miss的周期大于3时才增加miss事件计数
-//         }
-//         counter := 0.U
-//         miss_detected := false.B
-//     }
-// }
-// // printf(p"Total DCache miss events: ${miss_events}\n")
-
-
-//   //dcache access count
-//   val access_detected = RegInit(false.B)
-//   val access_events = RegInit(0.U(32.W))
-
-//     when(reset.asBool()) {    
-//     access_detected := false.B
-//     access_events := 0.U // 重置access事件计数器
-// }.otherwise {
-//     when(io.dmem.req.valid) {
-//         // access count
-//         when(!access_detected) {
-//             access_detected := true.B
-//             access_events := access_events + 1.U // 在首次检测到access时增加access事件计数
-//         }
-//     }.elsewhen(access_detected) {
-//         // access信号从高变低，然后重置flag
-//         // printf(p"DCache access detect!\n")
-//         access_detected := false.B
-//     }
-// }
-// printf(p"Total DCache access events: ${access_events}\n")
-//********************************************************************************************
-//记录所有fp inst numbers
-//   val fp_events = RegInit(0.U(32.W))
-//   val fp_eventsnext = RegInit(0.U(32.W))
-
-// //   when(reset.asBool()) {
-// //     fp_events := 0.U // 重置fp事件计数器
-// // }.otherwise {
-// //     when(ex_ctrl.fp && (ex_reg_inst =/= mem_reg_inst)) {
-// //         // 检测到 fp
-// //         fp_events := fp_events + 1.U
-// //     }
-// // }
-
-// when (fp_events =/= fp_eventsnext) {
-//   printf(p"Total fp events: ${fp_events}\n")
-//   fp_eventsnext := fp_events
-// }
-
-//  val csr_ctrl = Wire(new IntCtrlSigs(aluFn)).decode(csr.io.trace(0).insn, decode_table)
-//  when (csr.io.trace(0).valid){
-//     when (csr_ctrl.fp) {
-//       fp_events := fp_events + 1.U
-//     }
-//  }
-
-  //*******************************************************************************************
   val (ex_xcpt, ex_cause) = checkExceptions(List(
     (ex_reg_xcpt_interrupt || ex_reg_xcpt, ex_reg_cause)))
 
@@ -788,11 +725,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     mem_dmem_req_inv := ex_dmem_req_inv
     mem_rh_hit := ex_rh_hit
     mem_hit_ptr := ex_hit_ptr
-    // when((ex_rh_load === true.B) && (runahead_flag === true.B) && (ex_rh_hit === true.B)){//load the data
-    //   mem_rh_load_resp := true.B
-    // }.otherwise{
-    //   mem_rh_load_resp := false.B
-    // }
+
     /*runahead code end*/
     mem_reg_sfence := ex_sfence
     mem_reg_btb_resp := ex_reg_btb_resp
@@ -827,6 +760,10 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
       mem_reg_flush_pipe := true.B
     }
   }
+
+  /*runahead code begin*/
+  mem_l2set_match := ex_l2set_match
+  /*runahead code end*/
 
   val mem_breakpoint = (mem_reg_load && bpu.io.xcpt_ld) || (mem_reg_store && bpu.io.xcpt_st)
   val mem_debug_breakpoint = (mem_reg_load && bpu.io.debug_ld) || (mem_reg_store && bpu.io.debug_st)
@@ -882,12 +819,14 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     wb_reg_load := mem_reg_load
     wb_dmem_req_inv := mem_dmem_req_inv
     wb_rh_hit := mem_rh_hit
-//    wb_rh_load_resp := mem_rh_load_resp
     wb_hit_ptr := mem_hit_ptr
     /*runahead code end*/
 
     wb_reg_wphit := mem_reg_wphit | bpu.io.bpwatch.map { bpw => (bpw.rvalid(0) && mem_reg_load) || (bpw.wvalid(0) && mem_reg_store) }
   }
+  /*runahead code begin*/
+  wb_l2set_match := mem_l2set_match
+  /*runahead code end*/
 
   val (wb_xcpt, wb_cause) = checkExceptions(List(
     (wb_reg_xcpt,  wb_reg_cause),
@@ -936,7 +875,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val dmem_resp_waddr = Mux(runahead_flag && wb_rh_hit && !s0_db_flag, wb_waddr, io.dmem.resp.bits.tag(5, 1))
   /*runahead code end*/
   val dmem_resp_valid = io.dmem.resp.valid && io.dmem.resp.bits.has_data && 
-  !exit_miss_back
+  !exit_miss_back || wb_l2set_match && !io.dmem.resp.valid //||wb_l2set_match && io.dmem.resp.valid && io.dmem.resp.bits.addr === s2_reg_io_dmem_req_bits_addr)
   /*runahead code end*/
   val dmem_resp_replay = dmem_resp_valid && io.dmem.resp.bits.replay
 
@@ -944,8 +883,8 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   io.imem.l2miss := rcu.io.l2miss
   io.imem.l2back := s2_db_flag
   io.imem.exit_miss_back := exit_miss_back
-  val mshr_l2miss_tag = Mux(io.dmem.mshr_state(1) === 0.U,io.dmem.mshr_tag(0), 0.U)
-  val mshr_l2miss_addr = Mux(io.dmem.mshr_state(1) === 0.U,io.dmem.mshr_addr(0), 0.U)
+  val rh_l2miss_tag = Mux(io.dmem.mshr_state(1) === 0.U,io.dmem.mshr_tag(0), 0.U)
+  val rh_l2miss_addr = Mux(io.dmem.mshr_state(1) === 0.U,io.dmem.mshr_addr(0), 0.U)
   val s_runahead_wait_req ::s_runahead_wait_resp :: s_runahead :: s_pass :: s_inv :: s_pseudo_exit :: s_exit :: Nil = Enum(7)
   val runahead_state = RegInit(s_runahead_wait_req)
   val s1_runahead = RegNext(runahead_state === s_runahead, init = false.B)
@@ -1006,11 +945,9 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
       }
     }
   }
-  exit_miss_back :=  (runahead_state === s_runahead || runahead_state === s_pseudo_exit) && io.dmem.resp.valid && (
-                       io.dmem.resp.bits.addr(39,6) === runahead_addr(0)(39,6) && runahead_l2miss_events(0) === true.B ||
-                       io.dmem.resp.bits.addr(39,6) === runahead_addr(1)(39,6) && runahead_l2miss_events(1) === true.B ||
-                       io.dmem.resp.bits.addr(39,6) === runahead_addr(2)(39,6) && runahead_l2miss_events(2) === true.B ||
-                       io.dmem.resp.bits.addr(39,6) === runahead_addr(3)(39,6) && runahead_l2miss_events(3) === true.B)
+  exit_miss_back := (runahead_state === s_runahead || runahead_state === s_pseudo_exit) && io.dmem.resp.valid && 
+                    (0 until tileParams.dcache.get.nMSHRs).map{index => 
+                    io.dmem.resp.bits.addr(39, 6) === runahead_addr(index)(39, 6) && runahead_l2miss_events(index) === true.B}.reduce(_||_)
   /*runahead code end*/
 
   when (rf_wen //&&
@@ -1130,7 +1067,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     fp_sboard.clear(io.fpu.sboard_clr, io.fpu.sboard_clra)
 
     /*runahead code begin*/
-    //fp_sboard.clear(runahead_posedge.asBool && checkHazards(fp_hazard_targets, fp_sboard.read _), mshr_l2miss_tag)
+    //fp_sboard.clear(runahead_posedge.asBool && checkHazards(fp_hazard_targets, fp_sboard.read _), rh_l2miss_tag)
     /*runahead code end*/
 
     checkHazards(fp_hazard_targets, fp_sboard.read _) 
@@ -1143,10 +1080,10 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val inv_events = RegInit(0.U(2.W))
   val take_pc_mem_wb_reg = RegNext(take_pc_mem_wb)
   val runahead_enter = /*(id_stall_fpu || id_sboard_hazard)*/id_sboard_hazard && !io.dmem.l2hit && 
-                    (id_raddr1 === mshr_l2miss_tag(6, 2) || 
-                    id_raddr2 === mshr_l2miss_tag(6, 2) || 
-                    id_waddr === mshr_l2miss_tag(6, 2)) &&
-                    (mshr_l2miss_tag =/= 0.U) &&
+                    (id_raddr1 === rh_l2miss_tag(6, 2) || 
+                    id_raddr2 === rh_l2miss_tag(6, 2) || 
+                    id_waddr === rh_l2miss_tag(6, 2)) &&
+                    (rh_l2miss_tag =/= 0.U) &&
                     io.dmem.mshr_flag
 
   val s1_reg_reg_io_dmem_req_bits_addr =RegNext(dmem_req_addr)
@@ -1171,57 +1108,35 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   }
 //mshr 不写回
 when(runahead_state === s_runahead) {
- when(mshr_l2dcache_miss(1)){
-  runahead_l2miss_events(1) := true.B
- }
- when(mshr_l2dcache_miss(2)) {
-  runahead_l2miss_events(2) := true.B
- }
- when(mshr_l2dcache_miss(3)) {
-  runahead_l2miss_events(3) := true.B
- }
+  (1 until tileParams.dcache.get.nMSHRs).foreach { i =>
+    when(mshr_l2dcache_miss(i)) {
+      runahead_l2miss_events(i) := true.B
+    }
+  }
 }.elsewhen(runahead_state === s_runahead && io.dmem.resp.valid) {
-  when(s1_mshr_deq_ptr_value(1) === runahead_enq_ptr_value(1) && io.dmem.resp.bits.addr>>6.U === runahead_addr(1)>>6.U && runahead_l2miss_events(1) === true.B ) {
-    runahead_l2miss_events(1) := false.B
-  }
-  when(s1_mshr_deq_ptr_value(2) === runahead_enq_ptr_value(2) && io.dmem.resp.bits.addr>>6.U === runahead_addr(2)>>6.U && runahead_l2miss_events(2) === true.B ) {
-    runahead_l2miss_events(2) := false.B
-  }
-  when(s1_mshr_deq_ptr_value(3) === runahead_enq_ptr_value(3) && io.dmem.resp.bits.addr>>6.U === runahead_addr(3)>>6.U && runahead_l2miss_events(3) === true.B ) {
-    runahead_l2miss_events(3) := false.B
+  (1 until tileParams.dcache.get.nMSHRs).foreach { i =>
+    when(s1_mshr_deq_ptr_value(i) === runahead_enq_ptr_value(i) && io.dmem.resp.bits.addr >> 6.U === runahead_addr(i) >> 6.U && runahead_l2miss_events(i) === true.B) {
+      runahead_l2miss_events(i) := false.B
+    }
   }
 }
 .elsewhen(s2_db_flag && runahead_state === s_pass) {
-  when(io.dmem.mshr_state(0) =/= 0.U) {
-    runahead_l2miss_events(0) := true.B
-  }
-  when(io.dmem.mshr_state(1) =/= 0.U) {
-    runahead_l2miss_events(1) := true.B
-  }
-  when(io.dmem.mshr_state(2) =/= 0.U) {
-    runahead_l2miss_events(2) := true.B
-  }
-  when(io.dmem.mshr_state(3) =/= 0.U) {
-    runahead_l2miss_events(3) :=true.B
+  (0 until tileParams.dcache.get.nMSHRs).foreach { i =>
+    when(io.dmem.mshr_state(i) =/= 0.U) {
+      runahead_l2miss_events(i) := true.B
+    }
   }
 }.elsewhen(runahead_state === s_pseudo_exit && io.dmem.resp.valid) {
-  when(s1_mshr_deq_ptr_value(0) === runahead_enq_ptr_value(0) && io.dmem.resp.bits.addr>>6.U === runahead_addr(0)>>6.U && runahead_l2miss_events(0) === true.B) {
-    runahead_l2miss_events(0) := false.B
-  }
-  when(s1_mshr_deq_ptr_value(1) === runahead_enq_ptr_value(1) && io.dmem.resp.bits.addr>>6.U === runahead_addr(1)>>6.U && runahead_l2miss_events(1) === true.B ) {
-    runahead_l2miss_events(1) := false.B
-  }
-  when(s1_mshr_deq_ptr_value(2) === runahead_enq_ptr_value(2) && io.dmem.resp.bits.addr>>6.U === runahead_addr(2)>>6.U && runahead_l2miss_events(2) === true.B ) {
-    runahead_l2miss_events(2) := false.B
-  }
-  when(s1_mshr_deq_ptr_value(3) === runahead_enq_ptr_value(3) && io.dmem.resp.bits.addr>>6.U === runahead_addr(3)>>6.U && runahead_l2miss_events(3) === true.B ) {
-    runahead_l2miss_events(3) := false.B
+  (0 until tileParams.dcache.get.nMSHRs).foreach {i =>
+    when(s1_mshr_deq_ptr_value(i) === runahead_enq_ptr_value(i) && io.dmem.resp.bits.addr>>6.U === runahead_addr(i)>>6.U && runahead_l2miss_events(i) === true.B) {
+      runahead_l2miss_events(i) := false.B
+    }
   }
 }
 //l2dcache miss signal
 l2cache_miss := io.dmem.l2acquire.orR
 
-for(i <- io.dmem.mshr_state.indices) {
+for(i <- 0 until tileParams.dcache.get.nMSHRs) {
   mshr_l2dcache_miss(i) := io.dmem.mshr_state(i) =/= 0.U && (0 until 5).map { j =>
     io.dmem.l2acquire(j) &&
     io.dmem.mshr_addr(i)(27, 13) === io.dmem.l2request_tag(j) &&
@@ -1244,57 +1159,30 @@ dontTouch(s1_mshr_l2dcache_miss)
 dontTouch(runahead_tag)
 dontTouch(runahead_deq_ptr_value)
 when(runahead_posedge) {
-  l2miss_tag := mshr_l2miss_tag
-  l2miss_addr := mshr_l2miss_addr
+  l2miss_tag := rh_l2miss_tag
+  l2miss_addr := rh_l2miss_addr
 }.elsewhen(runahead_state === s_runahead) {
-  when(mshr_l2dcache_miss(1)) {
-    runahead_tag(1) := io.dmem.mshr_tag(1)
-    runahead_addr(1) := io.dmem.mshr_addr(1)
-    runahead_enq_ptr_value(1) := io.dmem.mshr_enq_ptr_value(1)
-    runahead_deq_ptr_value(1) := io.dmem.mshr_deq_ptr_value(1)
-  }
-  when(mshr_l2dcache_miss(2)) {
-    runahead_tag(2) := io.dmem.mshr_tag(2)
-    runahead_addr(2) := io.dmem.mshr_addr(2)
-    runahead_enq_ptr_value(2) := io.dmem.mshr_enq_ptr_value(2)
-    runahead_deq_ptr_value(2) := io.dmem.mshr_deq_ptr_value(2)
-  }
-  when(mshr_l2dcache_miss(3)) {
-    runahead_tag(3) := io.dmem.mshr_tag(3)
-    runahead_addr(3) := io.dmem.mshr_addr(3)
-    runahead_enq_ptr_value(3) := io.dmem.mshr_enq_ptr_value(3)
-    runahead_deq_ptr_value(3) := io.dmem.mshr_deq_ptr_value(3)
-  }
+  (1 until tileParams.dcache.get.nMSHRs).foreach { i =>
+  when(mshr_l2dcache_miss(i)) {
+    runahead_tag(i) := io.dmem.mshr_tag(i)
+    runahead_addr(i) := io.dmem.mshr_addr(i)
+    runahead_enq_ptr_value(i) := io.dmem.mshr_enq_ptr_value(i)
+    runahead_deq_ptr_value(i) := io.dmem.mshr_deq_ptr_value(i)
+  }}
 }.elsewhen(s2_db_flag && runahead_state === s_pass) {
-  when(io.dmem.mshr_state(0) =/= 0.U) {
-    runahead_tag(0) := io.dmem.mshr_tag(0)
-    runahead_addr(0) := io.dmem.mshr_addr(0)
-    runahead_enq_ptr_value(0) := io.dmem.mshr_enq_ptr_value(0)
-    runahead_deq_ptr_value(0) := io.dmem.mshr_deq_ptr_value(0)
-  }
-  when(io.dmem.mshr_state(1) =/= 0.U) {
-    runahead_tag(1) := io.dmem.mshr_tag(1)
-    runahead_addr(1) := io.dmem.mshr_addr(1)
-    runahead_enq_ptr_value(1) := io.dmem.mshr_enq_ptr_value(1)
-    runahead_deq_ptr_value(1) := io.dmem.mshr_deq_ptr_value(1)
-  }
-  when(io.dmem.mshr_state(2) =/= 0.U) {
-    runahead_tag(2) := io.dmem.mshr_tag(2)
-    runahead_addr(2) := io.dmem.mshr_addr(2)
-    runahead_enq_ptr_value(2) := io.dmem.mshr_enq_ptr_value(2)
-    runahead_deq_ptr_value(2) := io.dmem.mshr_deq_ptr_value(2)
-  }
-  when(io.dmem.mshr_state(3) =/= 0.U) {
-    runahead_tag(3) := io.dmem.mshr_tag(3)
-    runahead_addr(3) := io.dmem.mshr_addr(3)
-    runahead_enq_ptr_value(3) := io.dmem.mshr_enq_ptr_value(3)
-    runahead_deq_ptr_value(3) := io.dmem.mshr_deq_ptr_value(3)
+  (0 until tileParams.dcache.get.nMSHRs).foreach { i =>
+    when(io.dmem.mshr_state(i) =/= 0.U) {
+      runahead_tag(i) := io.dmem.mshr_tag(i)
+      runahead_addr(i) := io.dmem.mshr_addr(i)
+      runahead_enq_ptr_value(i) := io.dmem.mshr_enq_ptr_value(i)
+      runahead_deq_ptr_value(i) := io.dmem.mshr_deq_ptr_value(i)
+    }
   }
 } .elsewhen(runahead_state === s_exit) {
-  runahead_tag := VecInit(Seq.fill(4)(0.U(7.W)))
-  runahead_addr := VecInit(Seq.fill(4)(0.U(40.W)))
-  runahead_enq_ptr_value := VecInit(Seq.fill(4)(0.U(4.W)))
-  runahead_deq_ptr_value := VecInit(Seq.fill(4)(0.U(4.W)))
+  runahead_tag := VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(7.W)))
+  runahead_addr := VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(40.W)))
+  runahead_enq_ptr_value := VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(4.W)))
+  runahead_deq_ptr_value := VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(4.W)))
   l2miss_tag := 0.U
   l2miss_addr := 0.U
 }
@@ -1309,8 +1197,8 @@ when(runahead_posedge) {
     runahead_state := s_runahead_wait_req
   }
 //进入runahead的条件
-  when(runahead_state === s_runahead_wait_req && runahead_enter && !take_pc_mem_wb_reg && !io.dmem.req.valid && io.dmem.mshr_cmd(0) === 0.U && !io.dmem.alloc_arb_out_ready
-      && io.dmem.mshr_state(1) === 0.U && io.dmem.mshr_state(2) === 0.U && io.dmem.mshr_state(3) === 0.U
+  when(runahead_state === s_runahead_wait_req && runahead_enter && !take_pc_mem_wb_reg && !io.dmem.req.valid && io.dmem.mshr_cmd(0) === 0.U && !io.dmem.alloc_arb_out_ready &&
+      (1 until tileParams.dcache.get.nMSHRs).map(i =>io.dmem.mshr_state(i) === 0.U).reduce(_&&_)
   ) {
     when(inv_events === 0.U) {
       runahead_state := s_runahead
@@ -1326,7 +1214,7 @@ when(runahead_posedge) {
   //     runahead_state := s_inv
   //   }
   when(s2_db_flag && runahead_state === s_pass) {
-    when(io.dmem.mshr_state(0) === 0.U && io.dmem.mshr_state(1) === 0.U && io.dmem.mshr_state(2) === 0.U && io.dmem.mshr_state(3) === 0.U) {
+    when((0 until tileParams.dcache.get.nMSHRs).map(i => io.dmem.mshr_state(i) === 0.U).reduce(_ && _)) {
       runahead_state := s_exit
     } .otherwise {
       runahead_state := s_pseudo_exit
@@ -1356,6 +1244,7 @@ when(runahead_posedge) {
 
    runahead_flag :=   rcu.io.runahead_flag
    io.dmem.runahead_flag := runahead_flag
+   io.dmem.l1miss_l2set_match := wb_l2set_match && !io.dmem.resp.valid
   /*runahead code end*/
 
   /*runahead invfile beign*/
@@ -1369,23 +1258,24 @@ when(runahead_posedge) {
 
   sboard.clear((runahead_flag === true.B) && s2_runahead_posedge, l2miss_tag(6,2))//pretend stall for dependency
   //exit when l2miss stall in runahead(maybe mshr_l2dcahe_miss拉高之前，多个tag写入了mshr)
-  sboard.clear(runahead_flag && s1_mshr_l2dcache_miss(1),runahead_tag(1)(6,2))
-  sboard.clear(runahead_flag && s1_mshr_l2dcache_miss(2),runahead_tag(2)(6,2))
-  sboard.clear(runahead_flag && s1_mshr_l2dcache_miss(3),runahead_tag(3)(6,2))
+  for(i <- 1 until tileParams.dcache.get.nMSHRs) {
+    sboard.clear(runahead_flag && s1_mshr_l2dcache_miss(i),runahead_tag(i)(6,2))
+  }
   val rf_invfile = new Scoreboard(32, true)
   rf_invfile.set((runahead_flag === true.B) && s1_runahead_posedge,id_waddr) //导致进入l2missstall的inst 对应的目标寄存器置无效(可能不是寄存器依赖，是set match依赖)
   rf_invfile.set((runahead_flag === true.B) && s1_runahead_posedge, l2miss_tag(6,2))
   //set the inv_rf of l2miss_stall
-  rf_invfile.set((runahead_flag === true.B) && s1_mshr_l2dcache_miss(1), runahead_tag(1)(6,2))
-  rf_invfile.set((runahead_flag === true.B) && s1_mshr_l2dcache_miss(2), runahead_tag(2)(6,2))
-  rf_invfile.set((runahead_flag === true.B) && s1_mshr_l2dcache_miss(3), runahead_tag(3)(6,2))
+  for(i <- 1 until tileParams.dcache.get.nMSHRs) {
+    rf_invfile.set((runahead_flag === true.B) && s1_mshr_l2dcache_miss(i), runahead_tag(i)(6,2))
+  }
+  rf_invfile.set((runahead_flag === true.B) && io.dmem.l1miss_l2set_match, io.dmem.resp.bits.tag(5, 1)) //set inv of l1miss and l2set match
 
   val ex_rfinvfile_propogation = checkHazards(rh_hazard_targets, rd => rf_invfile.read(rd))
 
-  rf_invfile.set((runahead_flag === true.B) && ex_rfinvfile_propogation || l2miss_block_match.orR, ex_waddr) //although invalid, it will still writeback to rf
+  rf_invfile.set((runahead_flag === true.B) && ex_rfinvfile_propogation || l2miss_block_matches.orR, ex_waddr) //although invalid, it will still writeback to rf
   val rf_invfile_clear = Reg(Bool())
   rf_invfile_clear := !ctrl_killd || csr.io.interrupt || ibuf.io.inst(0).bits.replay
-  rf_invfile.clear((runahead_flag === true.B) && !ex_rfinvfile_propogation && !s1_runahead_posedge && rf_invfile_clear && !l2miss_block_match.orR, ex_waddr) // to do: add a ctrl_sig, judge if a load addr is valid
+  rf_invfile.clear((runahead_flag === true.B) && !ex_rfinvfile_propogation && !s1_runahead_posedge && rf_invfile_clear && !l2miss_block_matches.orR, ex_waddr) // to do: add a ctrl_sig, judge if a load addr is valid
   val invfile = WireInit(VecInit(Seq.fill(31)(0.U(1.W))))
   for(i <- 0 until 31) {
     invfile(i) := rf_invfile.read(i.U).asUInt()
@@ -1405,32 +1295,12 @@ when(runahead_posedge) {
   val addr_invfile = new Scoreboard(10, true)
 
   //hit? and find hit_ptr
-  ex_rh_hit := MuxCase(0.U,Seq(
-    ((rhbuffer_addr(0) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(0) =/= 0.U)) -> true.B,
-    ((rhbuffer_addr(1) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(1) =/= 0.U)) -> true.B,
-    ((rhbuffer_addr(2) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(2) =/= 0.U)) -> true.B,
-    ((rhbuffer_addr(3) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(3) =/= 0.U)) -> true.B,
-    ((rhbuffer_addr(4) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(4) =/= 0.U)) -> true.B,
-    ((rhbuffer_addr(5) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(5) =/= 0.U)) -> true.B,
-    ((rhbuffer_addr(6) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(6) =/= 0.U)) -> true.B,
-    ((rhbuffer_addr(7) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(7) =/= 0.U)) -> true.B,
-    ((rhbuffer_addr(8) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(8) =/= 0.U)) -> true.B,
-    ((rhbuffer_addr(9) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(9) =/= 0.U)) -> true.B,
-  ))
-
-  ex_hit_ptr := MuxCase(0.U,Seq(
-    ((rhbuffer_addr(0) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(0) =/= 0.U)) -> 0.U,
-    ((rhbuffer_addr(1) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(1) =/= 0.U)) -> 1.U,
-    ((rhbuffer_addr(2) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(2) =/= 0.U)) -> 2.U,
-    ((rhbuffer_addr(3) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(3) =/= 0.U)) -> 3.U,
-    ((rhbuffer_addr(4) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(4) =/= 0.U)) -> 4.U,
-    ((rhbuffer_addr(5) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(5) =/= 0.U)) -> 5.U,
-    ((rhbuffer_addr(6) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(6) =/= 0.U)) -> 6.U,
-    ((rhbuffer_addr(7) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(7) =/= 0.U)) -> 7.U,
-    ((rhbuffer_addr(8) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(8) =/= 0.U)) -> 8.U,
-    ((rhbuffer_addr(9) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(9) =/= 0.U)) -> 9.U,
-  ))
-
+  ex_rh_hit := MuxCase(0.U, (0 until 10).map { i =>
+    ((rhbuffer_addr(i) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(i) =/= 0.U)) -> true.B
+  })
+  ex_hit_ptr := MuxCase(0.U, (0 until 10).map { i =>
+  ((rhbuffer_addr(i) === dmem_req_addr) && ((ex_rh_load === true.B) || (ex_rh_store === true.B)) && (rhbuffer_addr(i) =/= 0.U)) -> i.U
+  })
   // val addr_matches = rhbuffer_addr.zipWithIndex.map { case (addr, idx) =>
   // (addr === dmem_req_addr && addr_invfile.read === 1.U).asUInt << idx
   // }.reduce(_ | _)
@@ -1482,11 +1352,11 @@ when(runahead_posedge) {
     }
   }
   
-  block_addr(0) := l2miss_addr(39,6)
-  block_addr(1) := runahead_addr(1)(39,6)
-  block_addr(2) := runahead_addr(2)(39,6)
-  block_addr(3) := runahead_addr(3)(39,6)
-  ex_dmem_req_inv := ex_rh_hit || ex_rh_load && ex_rfinvfile_propogation || l2miss_block_match.orR
+  mshr_block_addr(0) := l2miss_addr(39,6)
+  for(i <- 1 until tileParams.dcache.get.nMSHRs) {
+    mshr_block_addr(i) := runahead_addr(i)(39, 6)
+  }
+  ex_dmem_req_inv := ex_rh_hit || ex_rh_load && ex_rfinvfile_propogation || l2miss_block_matches.orR
   val s1_dmem_l2hit = RegNext(io.dmem.l2hit, init = true.B)
   val l2hit_nesedge = s1_dmem_l2hit && !io.dmem.l2hit
   val idx_match_l2miss = l2hit_nesedge && io.dmem.mshr_state(0) === 5.U && io.dmem.idx_match
@@ -1594,7 +1464,7 @@ when(runahead_posedge) {
   require(coreParams.dcacheReqTagBits >= ex_dcache_tag.getWidth)
   //io.dmem.req.bits.tag  := ex_dcache_tag
   /*runahead code begin*/
-  io.dmem.req.bits.tag  := Mux(l2miss_block_match.orR, 0.U, ex_dcache_tag)
+  io.dmem.req.bits.tag  := Mux(l2miss_block_matches.orR, 0.U, ex_dcache_tag)
   /*runahead code end*/
   io.dmem.req.bits.cmd  := ex_ctrl.mem_cmd
   io.dmem.req.bits.size := ex_reg_mem_size
@@ -1602,7 +1472,7 @@ when(runahead_posedge) {
   io.dmem.req.bits.phys := false.B
   //io.dmem.req.bits.addr := encodeVirtualAddress(ex_rs(0), alu.io.adder_out)
   /*runahead code begin*/
-  io.dmem.req.bits.addr := Mux(l2miss_block_match.orR, 0.U, encodeVirtualAddress(ex_rs(0), alu.io.adder_out))
+  io.dmem.req.bits.addr := Mux(l2miss_block_matches.orR, 0.U, encodeVirtualAddress(ex_rs(0), alu.io.adder_out))
   /*runahead code end*/
   io.dmem.req.bits.idx.foreach(_ := io.dmem.req.bits.addr)
   io.dmem.req.bits.dprv := Mux(ex_reg_hls, csr.io.hstatus.spvp, csr.io.status.dprv)

@@ -355,16 +355,17 @@ class MSHRFile(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCacheModu
     val fence_rdy = Output(Bool())
     val replay_next = Output(Bool())
     /*runahead code begin*/
-    val mshr_tag = Output(Vec(4, Bits(7.W)))
-    val mshr_cmd = Output(Vec(4, Bits(5.W)))
-    val mshr_addr = Output(Vec(4, Bits(40.W)))
-    val mshr_state = Output(Vec(4, Bits(4.W)))
-    val mshr_enq_ptr_value = Output(Vec(4, Bits(4.W)))
-    val mshr_deq_ptr_value = Output(Vec(4, Bits(4.W)))
+    val mshr_tag = Output(Vec(cfg.nMSHRs, Bits(7.W)))
+    val mshr_cmd = Output(Vec(cfg.nMSHRs, Bits(5.W)))
+    val mshr_addr = Output(Vec(cfg.nMSHRs, Bits(40.W)))
+    val mshr_state = Output(Vec(cfg.nMSHRs, Bits(4.W)))
+    val mshr_enq_ptr_value = Output(Vec(cfg.nMSHRs, Bits(4.W)))
+    val mshr_deq_ptr_value = Output(Vec(cfg.nMSHRs, Bits(4.W)))
     val idx_match = Output(Bool())
     val mshr_flag = Output(Bool())
     val alloc_arb_out_ready = Output(Bool())
     val runahead_flag = Input(Bool())
+    val l1miss_l2set_match = Input(Bool())
 
     /*runahead code end*/
   })
@@ -471,7 +472,11 @@ class MSHRFile(implicit edge: TLEdgeOut, p: Parameters) extends L1HellaCacheModu
   alloc_arb_out_ready := io.req.valid && sdq_rdy && cacheable && !idx_match
   /*runahead code end*/
 
-  alloc_arb.io.out.ready := io.req.valid && sdq_rdy && cacheable && !idx_match
+  alloc_arb.io.out.ready := io.req.valid && sdq_rdy && cacheable && !idx_match &&
+  /*runahead code begin*/
+  !io.l1miss_l2set_match
+  dontTouch(io.l1miss_l2set_match)
+  /*runahead code end*/
 
   io.meta_read <> meta_read_arb.io.out
   io.meta_write <> meta_write_arb.io.out
@@ -887,6 +892,7 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   io.cpu.alloc_arb_out_ready := mshrs.io.alloc_arb_out_ready
   io.cpu.mshr_flag := mshrs.io.mshr_flag
   mshrs.io.runahead_flag := io.cpu.runahead_flag
+  mshrs.io.l1miss_l2set_match := io.cpu.l1miss_l2set_match
   /*runahead code end*/
 
   // tag read for new requests
@@ -977,7 +983,10 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   writeArb.io.in(0).bits.way_en :=  s3_way
 
   // replacement policy
-  val replacer = cacheParams.replacement
+  /*runahead code begin*/
+  val replacer = ReplacementPolicy.fromString(cacheParams.replacementPolicy, nWays)
+  //val replacer = cacheParams.replacement
+  /*runahead code end*/
   val s1_replaced_way_en = UIntToOH(replacer.way)
   val s2_replaced_way_en = UIntToOH(RegEnable(replacer.way, s1_clk_en))
   val s2_repl_meta = Mux1H(s2_replaced_way_en, wayMap((w: Int) => RegEnable(meta.io.resp(w), s1_clk_en && s1_replaced_way_en(w))).toSeq)
