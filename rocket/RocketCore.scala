@@ -320,19 +320,28 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   /*runahead code begin*/
       !s1_db_flag && !s2_db_flag && !s3_db_flag
 
-  val l2miss_tag = RegInit(0.U(7.W))
-  val l2miss_addr = RegInit(0.U(40.W))
-  val runahead_tag = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(7.W))))
-  val runahead_addr = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(40.W))))
+
+//record all l2dcache miss message
+  val l2dcache_miss_mshr_tag  = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(7.W))))
+  val l2dcache_miss_mshr_addr = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(40.W))))
+  val l2dcache_miss_mshr_event = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(false.B)))
+  val l2dcache_miss_mshr_dep_pc = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(40.W))))
+  val l2dcache_miss_mshr_dep = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(false.B)))
+  val id_pc_valid = Wire(Bool())
+
+  val rh_enter_l2miss_tag = RegInit(0.U(7.W))
+  val rh_enter_l2miss_addr = RegInit(0.U(40.W))
+  val rh_l2miss_mshr_tag = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(7.W))))
+  val rh_l2miss_mshr_addr = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(40.W))))
 
   val mshr_l2dcache_miss = Wire(Vec(tileParams.dcache.get.nMSHRs, Bool()))
   val s1_mshr_l2dcache_miss = RegNext(mshr_l2dcache_miss)
   val l2cache_miss = Wire(Bool())
-  val runahead_enq_ptr_value = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(4.W))))
-  val runahead_deq_ptr_value = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(4.W))))
+  val rh_mshr_enq_ptr_value = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(4.W))))
+  val rh_mshr_deq_ptr_value = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(4.W))))
   val s1_mshr_enq_ptr_value = RegNext(io.dmem.mshr_enq_ptr_value)
   val s1_mshr_deq_ptr_value = RegNext(io.dmem.mshr_deq_ptr_value)
-  val runahead_l2miss_events = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(false.B)))
+  val rh_l2miss_mshr_event = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(false.B)))
   val mshr_block_addr = Wire(Vec(tileParams.dcache.get.nMSHRs, UInt(34.W)))
   val ex_l2set_match = Wire(Bool()) //TODO:l1miss and l2set_match dont set mshr(dont block_match)
 
@@ -341,12 +350,13 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val rcu = Module(new RCU(RCU_Params(xLen)))
   val runahead_flag = Wire(Bool())
   val dmem_req_addr = Wire(Bits())
+  val mem_dmem_req_addr = RegNext(dmem_req_addr)
   val s0_db_flag = Wire(Bool())
 
   // 使用Seq来存储所有l2miss_block_match信号
-val l2miss_block_matches = (0 until tileParams.dcache.get.nMSHRs).map { index =>
-  // 对于mshr0，不需要runahead_l2miss_events(index)的检查
-  val l2missEvent = if (index == 0) true.B else runahead_l2miss_events(index)
+val l2miss_mshr_block_match = (0 until tileParams.dcache.get.nMSHRs).map { index =>
+  // 对于mshr0，不需要rh_l2miss_mshr_event(index)的检查
+  val l2missEvent = if (index == 0) true.B else rh_l2miss_mshr_event(index)
 
   runahead_flag &&
   dmem_req_addr(39, 6) === mshr_block_addr(index) &&
@@ -356,9 +366,9 @@ val l2miss_block_matches = (0 until tileParams.dcache.get.nMSHRs).map { index =>
 }.toSeq
 
   ex_l2set_match := runahead_flag && ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD && io.dmem.req.valid && {
-    val mshr0Condition = dmem_req_addr(27, 13) =/= l2miss_addr(27, 13) && dmem_req_addr(12, 6) === l2miss_addr(12, 6) //mshr0 作为触发runahead信号
+    val mshr0Condition = dmem_req_addr(27, 13) =/= rh_enter_l2miss_addr(27, 13) && dmem_req_addr(12, 6) === rh_enter_l2miss_addr(12, 6) //mshr0 作为触发runahead信号
     val otherMSHRsCondition = (1 until tileParams.dcache.get.nMSHRs).map { index =>
-        dmem_req_addr(27, 13) =/= runahead_addr(index)(27, 13) && dmem_req_addr(12, 6) === runahead_addr(index)(12, 6) && runahead_l2miss_events(index)}.reduce(_||_)
+        dmem_req_addr(27, 13) =/= rh_l2miss_mshr_addr(index)(27, 13) && dmem_req_addr(12, 6) === rh_l2miss_mshr_addr(index)(12, 6) && rh_l2miss_mshr_event(index)}.reduce(_||_)
     mshr0Condition || otherMSHRsCondition
   }
 
@@ -378,7 +388,7 @@ val l2miss_block_matches = (0 until tileParams.dcache.get.nMSHRs).map { index =>
   ibuf.io.imem <> io.imem.resp
   ibuf.io.kill := take_pc
   /*runahead code begin*/
-  rcu.io.ipc := ibuf.io.pc //wb_reg_pc
+//  rcu.io.ipc := ibuf.io.pc //wb_reg_pc
   rcu.io.wb_valid := s2_db_flag
   /*runahead code end*/
 
@@ -655,7 +665,9 @@ val l2miss_block_matches = (0 until tileParams.dcache.get.nMSHRs).map { index =>
   }
 
   /*runahead code begin*/
-  when (!ctrl_killd || csr.io.interrupt || ibuf.io.inst(0).bits.replay) {
+  dontTouch(id_pc_valid)
+  id_pc_valid := !ctrl_killd || csr.io.interrupt || ibuf.io.inst(0).bits.replay
+  when (id_pc_valid) {
     ex_rh_load := id_ctrl.mem && id_ctrl.mem_cmd === M_XRD && (runahead_flag === true.B)
     ex_rh_store := id_ctrl.mem && id_ctrl.mem_cmd === M_XWR && (runahead_flag === true.B)
   } .otherwise {
@@ -865,10 +877,7 @@ val l2miss_block_matches = (0 until tileParams.dcache.get.nMSHRs).map { index =>
   take_pc_wb := replay_wb || wb_xcpt || csr.io.eret || wb_reg_flush_pipe
 
   // writeback arbitration
-  val dmem_resp_xpu = !io.dmem.resp.bits.tag(0).asBool //||
-  /*runahead code begin*/ 
-  //(wb_rh_load_resp === true.B)
-  /*runahead code end*/
+  val dmem_resp_xpu = !io.dmem.resp.bits.tag(0).asBool 
   val dmem_resp_fpu =  io.dmem.resp.bits.tag(0).asBool
   /*runahead code begin*/
   //val dmem_resp_waddr = io.dmem.resp.bits.tag(5, 1)
@@ -880,16 +889,13 @@ val l2miss_block_matches = (0 until tileParams.dcache.get.nMSHRs).map { index =>
   val dmem_resp_replay = dmem_resp_valid && io.dmem.resp.bits.replay
 
  /*runahead code begin*/
-  io.imem.l2miss := rcu.io.l2miss
+ //the signal of checkpoint GHR & RAS 
+  io.imem.l2miss := runahead_posedge
   io.imem.l2back := s2_db_flag
-  io.imem.exit_miss_back := exit_miss_back
-  val rh_l2miss_tag = Mux(io.dmem.mshr_state(1) === 0.U,io.dmem.mshr_tag(0), 0.U)
-  val rh_l2miss_addr = Mux(io.dmem.mshr_state(1) === 0.U,io.dmem.mshr_addr(0), 0.U)
-  val s_runahead_wait_req ::s_runahead_wait_resp :: s_runahead :: s_pass :: s_inv :: s_pseudo_exit :: s_exit :: Nil = Enum(7)
+
+  val s_runahead_wait_req ::s_runahead_wait_resp ::s_rh_enter :: s_runahead :: s_pass :: s_inv :: s_pseudo_exit :: s_exit :: Nil = Enum(8)
   val runahead_state = RegInit(s_runahead_wait_req)
-  val s1_runahead = RegNext(runahead_state === s_runahead, init = false.B)
-  val s2_runahead = RegNext(s1_runahead,init = false.B)
-  runahead_posedge := Mux(runahead_state === s_runahead,!s2_runahead & s1_runahead,0.U)
+  runahead_posedge := runahead_state === s_rh_enter
 
  /*runahead code end*/
 
@@ -940,14 +946,14 @@ val l2miss_block_matches = (0 until tileParams.dcache.get.nMSHRs).map { index =>
   }
   when(s2_db_flag) {
     for(j <- 0 until 31) {
-      when(j.U =/= l2miss_tag(6, 2)){
+      when(j.U =/= rh_enter_l2miss_tag(6, 2)){
         rf.write(j.U, rcu.io.rf_out(j))
       }
     }
   }
   exit_miss_back := (runahead_state === s_runahead || runahead_state === s_pseudo_exit) && io.dmem.resp.valid && 
                     (0 until tileParams.dcache.get.nMSHRs).map{index => 
-                    io.dmem.resp.bits.addr(39, 6) === runahead_addr(index)(39, 6) && runahead_l2miss_events(index) === true.B}.reduce(_||_)
+                    io.dmem.resp.bits.addr(39, 6) === rh_l2miss_mshr_addr(index)(39, 6) && rh_l2miss_mshr_event(index) === true.B}.reduce(_||_)
   /*runahead code end*/
 
   when (rf_wen //&&
@@ -1067,7 +1073,7 @@ val l2miss_block_matches = (0 until tileParams.dcache.get.nMSHRs).map { index =>
     fp_sboard.clear(io.fpu.sboard_clr, io.fpu.sboard_clra)
 
     /*runahead code begin*/
-    //fp_sboard.clear(runahead_posedge.asBool && checkHazards(fp_hazard_targets, fp_sboard.read _), rh_l2miss_tag)
+    //fp_sboard.clear(runahead_posedge.asBool && checkHazards(fp_hazard_targets, fp_sboard.read _), l2dcache_miss_mshr_tag(0)(6, 2))
     /*runahead code end*/
 
     checkHazards(fp_hazard_targets, fp_sboard.read _) 
@@ -1079,12 +1085,39 @@ val l2miss_block_matches = (0 until tileParams.dcache.get.nMSHRs).map { index =>
   //define runahead FSM and the trigger of l2miss
   val inv_events = RegInit(0.U(2.W))
   val take_pc_mem_wb_reg = RegNext(take_pc_mem_wb)
-  val runahead_enter = /*(id_stall_fpu || id_sboard_hazard)*/id_sboard_hazard && !io.dmem.l2hit && 
-                    (id_raddr1 === rh_l2miss_tag(6, 2) || 
-                    id_raddr2 === rh_l2miss_tag(6, 2) || 
-                    id_waddr === rh_l2miss_tag(6, 2)) &&
-                    (rh_l2miss_tag =/= 0.U) &&
-                    io.dmem.mshr_flag
+  val runahead_enter = /*(id_stall_fpu || id_sboard_hazard)*/id_sboard_hazard && l2dcache_miss_mshr_event(0) && 
+                    (id_raddr1 === l2dcache_miss_mshr_tag(0)(6, 2) || 
+                    id_raddr2 === l2dcache_miss_mshr_tag(0)(6, 2) || 
+                    id_waddr === l2dcache_miss_mshr_tag(0)(6, 2)) &&
+                    (l2dcache_miss_mshr_tag(0) =/= 0.U) &&
+                    div.io.state === 0.U &&
+                    io.dmem.mshr_flag //&& false.B
+    //cpu test
+  dontTouch(mshr_l2dcache_miss)
+  dontTouch(id_sboard_hazard)
+  val req_l1set = io.dmem.req.bits.addr(9, 6)
+  val req_l2set = io.dmem.req.bits.addr(12, 6)
+  val req_l2tag = io.dmem.req.bits.addr(27, 13)
+  val valid_commit_pc = RegInit(0.U(40.W))
+  when (csr.io.trace(0).valid) {
+    valid_commit_pc := csr.io.pc
+  } .otherwise {
+    valid_commit_pc := 0.U
+  }
+  dontTouch(valid_commit_pc)
+  dontTouch(req_l1set)
+  dontTouch(req_l2set)
+  dontTouch(req_l2tag)
+  val l2miss_counter = RegInit(0.U(32.W))
+  when(mshr_l2dcache_miss.orR){
+    l2miss_counter := l2miss_counter + 1.U
+  }
+  val dcache_miss_counter = RegInit(0.U(32.W))
+  when(io.dmem.perf.acquire) {
+    dcache_miss_counter := dcache_miss_counter + 1.U
+  }
+  dontTouch(dcache_miss_counter)
+  dontTouch(l2miss_counter)
 
   val s1_reg_reg_io_dmem_req_bits_addr =RegNext(dmem_req_addr)
   val s2_reg_io_dmem_req_bits_addr = RegNext(s1_reg_reg_io_dmem_req_bits_addr)
@@ -1092,10 +1125,10 @@ val l2miss_block_matches = (0 until tileParams.dcache.get.nMSHRs).map { index =>
 
 
   s0_db_flag := runahead_state === s_pass && io.dmem.mshr_state(0) === 0.U &&
-                io.dmem.resp.valid && io.dmem.resp.bits.tag(5, 1) === l2miss_tag(6, 2) &&
-                io.dmem.resp.bits.addr === l2miss_addr
+                io.dmem.resp.valid && s1_mshr_deq_ptr_value(0) === io.dmem.mshr_enq_ptr_value(0) &&
+                io.dmem.resp.bits.addr >> 6.U === rh_enter_l2miss_addr>> 6.U
   when(runahead_state === s_pass && io.dmem.mshr_state(0) === 0.U/* && io.dmem.mshr_state(1) === 0.U*/) {
-    db_flag := io.dmem.resp.valid && io.dmem.resp.bits.tag(5, 1) === l2miss_tag(6, 2) && io.dmem.resp.bits.addr === l2miss_addr
+    db_flag := io.dmem.resp.valid && s1_mshr_deq_ptr_value(0) === io.dmem.mshr_enq_ptr_value(0) && io.dmem.resp.bits.addr >> 6.U === rh_enter_l2miss_addr >> 6.U
   } .otherwise {
     db_flag := false.B
   } 
@@ -1110,81 +1143,115 @@ val l2miss_block_matches = (0 until tileParams.dcache.get.nMSHRs).map { index =>
 when(runahead_state === s_runahead) {
   (1 until tileParams.dcache.get.nMSHRs).foreach { i =>
     when(mshr_l2dcache_miss(i)) {
-      runahead_l2miss_events(i) := true.B
+      rh_l2miss_mshr_event(i) := true.B
     }
   }
 }.elsewhen(runahead_state === s_runahead && io.dmem.resp.valid) {
   (1 until tileParams.dcache.get.nMSHRs).foreach { i =>
-    when(s1_mshr_deq_ptr_value(i) === runahead_enq_ptr_value(i) && io.dmem.resp.bits.addr >> 6.U === runahead_addr(i) >> 6.U && runahead_l2miss_events(i) === true.B) {
-      runahead_l2miss_events(i) := false.B
+    when(s1_mshr_deq_ptr_value(i) === rh_mshr_enq_ptr_value(i) && io.dmem.resp.bits.addr >> 6.U === rh_l2miss_mshr_addr(i) >> 6.U && rh_l2miss_mshr_event(i) === true.B) {
+      rh_l2miss_mshr_event(i) := false.B
     }
   }
 }
 .elsewhen(s2_db_flag && runahead_state === s_pass) {
   (0 until tileParams.dcache.get.nMSHRs).foreach { i =>
     when(io.dmem.mshr_state(i) =/= 0.U) {
-      runahead_l2miss_events(i) := true.B
+      rh_l2miss_mshr_event(i) := true.B
     }
   }
 }.elsewhen(runahead_state === s_pseudo_exit && io.dmem.resp.valid) {
   (0 until tileParams.dcache.get.nMSHRs).foreach {i =>
-    when(s1_mshr_deq_ptr_value(i) === runahead_enq_ptr_value(i) && io.dmem.resp.bits.addr>>6.U === runahead_addr(i)>>6.U && runahead_l2miss_events(i) === true.B) {
-      runahead_l2miss_events(i) := false.B
+    when(s1_mshr_deq_ptr_value(i) === rh_mshr_enq_ptr_value(i) && io.dmem.resp.bits.addr>>6.U === rh_l2miss_mshr_addr(i)>>6.U && rh_l2miss_mshr_event(i) === true.B) {
+      rh_l2miss_mshr_event(i) := false.B
     }
   }
 }
 //l2dcache miss signal
 l2cache_miss := io.dmem.l2acquire.orR
-
+//only capture l2 load miss
 for(i <- 0 until tileParams.dcache.get.nMSHRs) {
-  mshr_l2dcache_miss(i) := io.dmem.mshr_state(i) =/= 0.U && (0 until 5).map { j =>
+  mshr_l2dcache_miss(i) := io.dmem.mshr_cmd(i) === 0.U && io.dmem.mshr_state(i) =/= 0.U && (0 until 5).map { j =>
     io.dmem.l2acquire(j) &&
     io.dmem.mshr_addr(i)(27, 13) === io.dmem.l2request_tag(j) &&
     io.dmem.mshr_addr(i)(12, 6) === io.dmem.l2request_set(j)
   }.reduce(_ || _)
 }
 
-// for(i <- io.dmem.mshr_state.indices) {
-//   mshr_l2dcache_miss(i) := io.dmem.mshr_state(i) =/= 0.U && 
-//   (io.dmem.l2acquire(0) && io.dmem.mshr_addr(i)(27, 13) === io.dmem.l2request_tag(0) && io.dmem.mshr_addr(i)(12, 6) === io.dmem.l2request_set(0) ||
-//    io.dmem.l2acquire(1) && io.dmem.mshr_addr(i)(27, 13) === io.dmem.l2request_tag(1) && io.dmem.mshr_addr(i)(12, 6) === io.dmem.l2request_set(1) ||
-//    io.dmem.l2acquire(2) && io.dmem.mshr_addr(i)(27, 13) === io.dmem.l2request_tag(2) && io.dmem.mshr_addr(i)(12, 6) === io.dmem.l2request_set(2) ||
-//    io.dmem.l2acquire(3) && io.dmem.mshr_addr(i)(27, 13) === io.dmem.l2request_tag(3) && io.dmem.mshr_addr(i)(12, 6) === io.dmem.l2request_set(3) ||
-//    io.dmem.l2acquire(4) && io.dmem.mshr_addr(i)(27, 13) === io.dmem.l2request_tag(4) && io.dmem.mshr_addr(i)(12, 6) === io.dmem.l2request_set(4) )
+//record all l2dcache miss message
+dontTouch(l2dcache_miss_mshr_tag)
+dontTouch(l2dcache_miss_mshr_addr)
+dontTouch(l2dcache_miss_mshr_event)
+dontTouch(l2dcache_miss_mshr_dep)
+dontTouch(l2dcache_miss_mshr_dep_pc)
+dontTouch(mem_pc_valid)
+dontTouch(wb_pc_valid)
 
-// }
+for (i <- 0 until tileParams.dcache.get.nMSHRs) {
+  when(mshr_l2dcache_miss(i)) {
+    l2dcache_miss_mshr_event(i) := true.B
+  }.elsewhen(io.dmem.mshr_state(i) === 8.U) {
+    l2dcache_miss_mshr_event(i) := false.B
+  }
+  when(mshr_l2dcache_miss(i)) {
+    l2dcache_miss_mshr_tag(i) := io.dmem.mshr_tag(i)
+    l2dcache_miss_mshr_addr(i) := io.dmem.mshr_addr(i)
+  } .elsewhen(io.dmem.resp.valid && io.dmem.resp.bits.addr>>6.U === l2dcache_miss_mshr_addr(i)>>6.U && s1_mshr_deq_ptr_value(i) === io.dmem.mshr_enq_ptr_value(i)) {
+    l2dcache_miss_mshr_tag(i) := 0.U
+    l2dcache_miss_mshr_addr(i) := 0.U
+    l2dcache_miss_mshr_dep(i) := false.B
+//    l2dcache_miss_mshr_dep_pc(i) := 0.U //这里置0的话，会比db_flag提前一个周期置零
+  }
+  when(l2dcache_miss_mshr_event(i) && !l2dcache_miss_mshr_dep(i)){
+    when(wb_pc_valid && io.dmem.resp.bits.addr(9, 6) === l2dcache_miss_mshr_addr(i)(9, 6) && wb_ctrl.mem) {// ex_ctrl.mem && ex_ctrl.mem_cmd === M_XRD
+      l2dcache_miss_mshr_dep_pc(i) := wb_reg_pc
+      l2dcache_miss_mshr_dep(i) := true.B
+    }.elsewhen(mem_pc_valid && mem_dmem_req_addr(9, 6) === l2dcache_miss_mshr_addr(i)(9, 6) && mem_ctrl.mem) {
+      l2dcache_miss_mshr_dep_pc(i) := mem_reg_pc
+      l2dcache_miss_mshr_dep(i) := true.B
+    }.elsewhen(ex_pc_valid && io.dmem.req.valid && dmem_req_addr(9, 6) === l2dcache_miss_mshr_addr(i)(9, 6) && ex_ctrl.mem) {
+      l2dcache_miss_mshr_dep_pc(i) := ex_reg_pc
+      l2dcache_miss_mshr_dep(i) := true.B
+    }.elsewhen(id_pc_valid && id_raddr1 === l2dcache_miss_mshr_tag(i)(6, 2) || 
+                              id_raddr2 === l2dcache_miss_mshr_tag(i)(6, 2) || 
+                              id_waddr === l2dcache_miss_mshr_tag(i)(6, 2)) {
+      l2dcache_miss_mshr_dep_pc(i) := ibuf.io.pc
+      l2dcache_miss_mshr_dep(i) := true.B
+    }
+
+  }
+}
 
 dontTouch(l2cache_miss)
 dontTouch(s1_mshr_l2dcache_miss)
-dontTouch(runahead_tag)
-dontTouch(runahead_deq_ptr_value)
+dontTouch(rh_l2miss_mshr_tag)
+dontTouch(rh_mshr_deq_ptr_value)
 when(runahead_posedge) {
-  l2miss_tag := rh_l2miss_tag
-  l2miss_addr := rh_l2miss_addr
+  rh_enter_l2miss_tag := l2dcache_miss_mshr_tag(0)
+  rh_enter_l2miss_addr := l2dcache_miss_mshr_addr(0)
 }.elsewhen(runahead_state === s_runahead) {
   (1 until tileParams.dcache.get.nMSHRs).foreach { i =>
   when(mshr_l2dcache_miss(i)) {
-    runahead_tag(i) := io.dmem.mshr_tag(i)
-    runahead_addr(i) := io.dmem.mshr_addr(i)
-    runahead_enq_ptr_value(i) := io.dmem.mshr_enq_ptr_value(i)
-    runahead_deq_ptr_value(i) := io.dmem.mshr_deq_ptr_value(i)
+    rh_l2miss_mshr_tag(i) := io.dmem.mshr_tag(i)
+    rh_l2miss_mshr_addr(i) := io.dmem.mshr_addr(i)
+    rh_mshr_enq_ptr_value(i) := io.dmem.mshr_enq_ptr_value(i)
+    rh_mshr_deq_ptr_value(i) := io.dmem.mshr_deq_ptr_value(i)
   }}
 }.elsewhen(s2_db_flag && runahead_state === s_pass) {
   (0 until tileParams.dcache.get.nMSHRs).foreach { i =>
     when(io.dmem.mshr_state(i) =/= 0.U) {
-      runahead_tag(i) := io.dmem.mshr_tag(i)
-      runahead_addr(i) := io.dmem.mshr_addr(i)
-      runahead_enq_ptr_value(i) := io.dmem.mshr_enq_ptr_value(i)
-      runahead_deq_ptr_value(i) := io.dmem.mshr_deq_ptr_value(i)
+      rh_l2miss_mshr_tag(i) := io.dmem.mshr_tag(i)
+      rh_l2miss_mshr_addr(i) := io.dmem.mshr_addr(i)
+      rh_mshr_enq_ptr_value(i) := io.dmem.mshr_enq_ptr_value(i)
+      rh_mshr_deq_ptr_value(i) := io.dmem.mshr_deq_ptr_value(i)
     }
   }
 } .elsewhen(runahead_state === s_exit) {
-  runahead_tag := VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(7.W)))
-  runahead_addr := VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(40.W)))
-  runahead_enq_ptr_value := VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(4.W)))
-  runahead_deq_ptr_value := VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(4.W)))
-  l2miss_tag := 0.U
-  l2miss_addr := 0.U
+  rh_l2miss_mshr_tag := VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(7.W)))
+  rh_l2miss_mshr_addr := VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(40.W)))
+  rh_mshr_enq_ptr_value := VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(4.W)))
+  rh_mshr_deq_ptr_value := VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(4.W)))
+  rh_enter_l2miss_tag := 0.U
+  rh_enter_l2miss_addr := 0.U
 }
 
   when(runahead_state === s_runahead_wait_req && io.dmem.req.valid && io.dmem.mshr_state(0) === 5.U) {
@@ -1197,14 +1264,19 @@ when(runahead_posedge) {
     runahead_state := s_runahead_wait_req
   }
 //进入runahead的条件
-  when(runahead_state === s_runahead_wait_req && runahead_enter && !take_pc_mem_wb_reg && !io.dmem.req.valid && io.dmem.mshr_cmd(0) === 0.U && !io.dmem.alloc_arb_out_ready &&
+  when(runahead_state === s_runahead_wait_req && runahead_enter && !take_pc_mem_wb_reg && 
+      !io.dmem.req.valid && io.dmem.mshr_cmd(0) === 0.U && !io.dmem.alloc_arb_out_ready &&
       (1 until tileParams.dcache.get.nMSHRs).map(i =>io.dmem.mshr_state(i) === 0.U).reduce(_&&_)
-  ) {
+      ) 
+  {
     when(inv_events === 0.U) {
-      runahead_state := s_runahead
+      runahead_state := s_rh_enter
     } .otherwise {
       runahead_state := s_inv
     }
+  }
+  when(runahead_state === s_rh_enter) {
+    runahead_state := s_runahead
   }
   when(runahead_state === s_runahead && io.dmem.mshr_state(0) === 8.U) {
     runahead_state := s_pass
@@ -1220,7 +1292,7 @@ when(runahead_posedge) {
       runahead_state := s_pseudo_exit
     }
   }
-  when(runahead_state === s_pseudo_exit && runahead_l2miss_events.orR === false.B) {
+  when(runahead_state === s_pseudo_exit && rh_l2miss_mshr_event.orR === false.B) {
     runahead_state := s_exit
   }
 
@@ -1256,26 +1328,26 @@ when(runahead_posedge) {
   val rh_hazard_targets = Seq((ex_ctrl.rxs1 && ex_raddr1 =/= 0.U, ex_raddr1),
                               (ex_ctrl.rxs2 && ex_raddr2 =/= 0.U, ex_raddr2))
 
-  sboard.clear((runahead_flag === true.B) && s2_runahead_posedge, l2miss_tag(6,2))//pretend stall for dependency
+  sboard.clear((runahead_flag === true.B) && s2_runahead_posedge, rh_enter_l2miss_tag(6,2))//pretend stall for dependency
   //exit when l2miss stall in runahead(maybe mshr_l2dcahe_miss拉高之前，多个tag写入了mshr)
   for(i <- 1 until tileParams.dcache.get.nMSHRs) {
-    sboard.clear(runahead_flag && s1_mshr_l2dcache_miss(i),runahead_tag(i)(6,2))
+    sboard.clear(runahead_flag && s1_mshr_l2dcache_miss(i),rh_l2miss_mshr_tag(i)(6,2))
   }
   val rf_invfile = new Scoreboard(32, true)
   rf_invfile.set((runahead_flag === true.B) && s1_runahead_posedge,id_waddr) //导致进入l2missstall的inst 对应的目标寄存器置无效(可能不是寄存器依赖，是set match依赖)
-  rf_invfile.set((runahead_flag === true.B) && s1_runahead_posedge, l2miss_tag(6,2))
+  rf_invfile.set((runahead_flag === true.B) && s1_runahead_posedge, rh_enter_l2miss_tag(6,2))
   //set the inv_rf of l2miss_stall
   for(i <- 1 until tileParams.dcache.get.nMSHRs) {
-    rf_invfile.set((runahead_flag === true.B) && s1_mshr_l2dcache_miss(i), runahead_tag(i)(6,2))
+    rf_invfile.set((runahead_flag === true.B) && s1_mshr_l2dcache_miss(i), rh_l2miss_mshr_tag(i)(6,2))
   }
   rf_invfile.set((runahead_flag === true.B) && io.dmem.l1miss_l2set_match, io.dmem.resp.bits.tag(5, 1)) //set inv of l1miss and l2set match
 
   val ex_rfinvfile_propogation = checkHazards(rh_hazard_targets, rd => rf_invfile.read(rd))
 
-  rf_invfile.set((runahead_flag === true.B) && ex_rfinvfile_propogation || l2miss_block_matches.orR, ex_waddr) //although invalid, it will still writeback to rf
+  rf_invfile.set((runahead_flag === true.B) && ex_rfinvfile_propogation || l2miss_mshr_block_match.orR, ex_waddr) //although invalid, it will still writeback to rf
   val rf_invfile_clear = Reg(Bool())
   rf_invfile_clear := !ctrl_killd || csr.io.interrupt || ibuf.io.inst(0).bits.replay
-  rf_invfile.clear((runahead_flag === true.B) && !ex_rfinvfile_propogation && !s1_runahead_posedge && rf_invfile_clear && !l2miss_block_matches.orR, ex_waddr) // to do: add a ctrl_sig, judge if a load addr is valid
+  rf_invfile.clear((runahead_flag === true.B) && !ex_rfinvfile_propogation && !s1_runahead_posedge && rf_invfile_clear && !l2miss_mshr_block_match.orR, ex_waddr) // to do: add a ctrl_sig, judge if a load addr is valid
   val invfile = WireInit(VecInit(Seq.fill(31)(0.U(1.W))))
   for(i <- 0 until 31) {
     invfile(i) := rf_invfile.read(i.U).asUInt()
@@ -1320,8 +1392,8 @@ when(runahead_posedge) {
     rhbuffer_data(ex_hit_ptr) := new StoreGen(size, 0.U, ex_rs(1), coreDataBytes).data
   }
   //invalid addr set and clear
-  // addr_invfile.set(runahead_flag && runahead_posedge, l2miss_tag(6, 2))
-  // addr_invfile.clear(runahead_flag && runahead_posedge, l2miss_tag(6, 2))
+  // addr_invfile.set(runahead_flag && runahead_posedge, rh_enter_l2miss_tag(6, 2))
+  // addr_invfile.clear(runahead_flag && runahead_posedge, rh_enter_l2miss_tag(6, 2))
 
   //load -> send this data to register file
 
@@ -1347,20 +1419,17 @@ when(runahead_posedge) {
   when(s2_db_flag){
     for (j <- 0 until 31) {
       sboard.clear(rcu.io.sb_out(j) === false.B || 
-                  (rcu.io.sb_out(j) === true.B && (j.U === l2miss_tag(6, 2))) ,j.U) //reset the sb_value that is resp_waddr
-      sboard.set(rcu.io.sb_out(j) === true.B && (j.U =/= l2miss_tag(6, 2)) ,j.U) 
+                  (rcu.io.sb_out(j) === true.B && (j.U === rh_enter_l2miss_tag(6, 2))) ,j.U) //reset the sb_value that is resp_waddr
+      sboard.set(rcu.io.sb_out(j) === true.B && (j.U =/= rh_enter_l2miss_tag(6, 2)) ,j.U) 
     }
   }
-  
-  mshr_block_addr(0) := l2miss_addr(39,6)
+  //record l2miss block addr 
+  mshr_block_addr(0) := rh_enter_l2miss_addr(39,6)
   for(i <- 1 until tileParams.dcache.get.nMSHRs) {
-    mshr_block_addr(i) := runahead_addr(i)(39, 6)
+    mshr_block_addr(i) := rh_l2miss_mshr_addr(i)(39, 6)
   }
-  ex_dmem_req_inv := ex_rh_hit || ex_rh_load && ex_rfinvfile_propogation || l2miss_block_matches.orR
-  val s1_dmem_l2hit = RegNext(io.dmem.l2hit, init = true.B)
-  val l2hit_nesedge = s1_dmem_l2hit && !io.dmem.l2hit
-  val idx_match_l2miss = l2hit_nesedge && io.dmem.mshr_state(0) === 5.U && io.dmem.idx_match
-  dontTouch(idx_match_l2miss)
+  ex_dmem_req_inv := ex_rh_hit || ex_rh_load && ex_rfinvfile_propogation || l2miss_mshr_block_match.orR
+
   /*runahead code end*/
   val dcache_blocked = {
     // speculate that a blocked D$ will unblock the cycle after a Grant
@@ -1398,7 +1467,7 @@ when(runahead_posedge) {
     Mux(wb_xcpt || csr.io.eret, csr.io.evec, // exception or [m|s]ret
     /*runahead code begin*/
 //    Mux(s2_runahead_posedge, wb_reg_pc,
-    Mux(db_flag ,rcu.io.opc,
+    Mux(db_flag ,l2dcache_miss_mshr_dep_pc(0),
     /*runahead code end*/   
     Mux(replay_wb,              wb_reg_pc,   // replay
 
@@ -1458,13 +1527,13 @@ when(runahead_posedge) {
   // !(ex_rh_hit && ex_rh_load) &&               //if rh_load hits in runahead buffer, the request will not send to dcache
   // !(ex_rfinvfile_propogation && ex_rh_load) //if load reqaddr is invalid, will not send request
   dmem_req_addr := encodeVirtualAddress(ex_rs(0), alu.io.adder_out)
-  //same_tag_miss := runahead_flag && l2miss_tag(6, 2) === ex_waddr
+  //same_tag_miss := runahead_flag && rh_enter_l2miss_tag(6, 2) === ex_waddr
   /*runahead code end*/
   val ex_dcache_tag = Cat(ex_waddr, ex_ctrl.fp)
   require(coreParams.dcacheReqTagBits >= ex_dcache_tag.getWidth)
   //io.dmem.req.bits.tag  := ex_dcache_tag
   /*runahead code begin*/
-  io.dmem.req.bits.tag  := Mux(l2miss_block_matches.orR, 0.U, ex_dcache_tag)
+  io.dmem.req.bits.tag  := Mux(l2miss_mshr_block_match.orR, 0.U, ex_dcache_tag)
   /*runahead code end*/
   io.dmem.req.bits.cmd  := ex_ctrl.mem_cmd
   io.dmem.req.bits.size := ex_reg_mem_size
@@ -1472,7 +1541,7 @@ when(runahead_posedge) {
   io.dmem.req.bits.phys := false.B
   //io.dmem.req.bits.addr := encodeVirtualAddress(ex_rs(0), alu.io.adder_out)
   /*runahead code begin*/
-  io.dmem.req.bits.addr := Mux(l2miss_block_matches.orR, 0.U, encodeVirtualAddress(ex_rs(0), alu.io.adder_out))
+  io.dmem.req.bits.addr := Mux(l2miss_mshr_block_match.orR, 0.U, encodeVirtualAddress(ex_rs(0), alu.io.adder_out))
   /*runahead code end*/
   io.dmem.req.bits.idx.foreach(_ := io.dmem.req.bits.addr)
   io.dmem.req.bits.dprv := Mux(ex_reg_hls, csr.io.hstatus.spvp, csr.io.status.dprv)

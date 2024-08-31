@@ -24,6 +24,9 @@ class MultiplierIO(val dataBits: Int, val tagBits: Int, aluFn: ALUFN = new ALUFN
   val req = Flipped(Decoupled(new MultiplierReq(dataBits, tagBits, aluFn)))
   val kill = Input(Bool())
   val resp = Decoupled(new MultiplierResp(dataBits, tagBits))
+  /*runahead code begin*/
+  val state = Output(Bits(3.W))
+  /*runahead code end*/
 }
 
 case class MulDivParams(
@@ -46,6 +49,9 @@ class MulDiv(cfg: MulDivParams, width: Int, nXpr: Int = 32, aluFn: ALUFN = new A
  
   val s_ready :: s_neg_inputs :: s_mul :: s_div :: s_dummy :: s_neg_output :: s_done_mul :: s_done_div :: Nil = Enum(8)
   val state = RegInit(s_ready)
+  /*runahead code begin*/
+  io.state := state
+  /*runahead code end*/
  
   val req = Reg(chiselTypeOf(io.req.bits))
   val count = Reg(UInt(log2Ceil(

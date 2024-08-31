@@ -1049,11 +1049,6 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   TLArbiter.lowest(edge, tl_out.c, wb.io.release, prober.io.rep)
 
   /*runahead code begin*/
-  val l2_hit = Wire(chiselTypeOf(tl_out.b.bits.hit))
-  io.cpu.l2hit := tl_out.b.bits.hit
-  l2_hit := tl_out.b.bits.hit
-  dontTouch(io.cpu.l2hit)
-  dontTouch(l2_hit)
   io.cpu.l2acquire :=tl_out.b.bits.acquire
   io.cpu.l2request_set := tl_out.b.bits.request_set
   io.cpu.l2request_tag := tl_out.b.bits.request_tag

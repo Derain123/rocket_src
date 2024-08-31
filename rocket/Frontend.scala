@@ -61,7 +61,6 @@ class FrontendIO(implicit p: Parameters) extends CoreBundle()(p) {
   /*runahead code begin*/
   val l2miss = Output(Bool())
   val l2back = Output(Bool())
-  val exit_miss_back = Output(Bool())
   /*runahead code end*/
 }
 
@@ -138,9 +137,6 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
   s2_replay := (s2_valid && !fq.io.enq.fire) || RegNext(s2_replay && !s0_valid, true.B)
   val npc = Mux(s2_replay, s2_pc, predicted_npc)
   s1_pc := io.cpu.npc
-  /*runahead code begin*/
-  dontTouch(io.cpu.exit_miss_back)
-  /*runahead code end*/  
   // consider RVC fetches across blocks to be non-speculative if the first
   // part was non-speculative
   val s0_speculative =

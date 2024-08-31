@@ -70,7 +70,6 @@ class HellaCacheArbiter(n: Int)(implicit p: Parameters) extends Module
       io.requestor(i).s2_paddr := io.mem.s2_paddr
       io.requestor(i).clock_enabled := io.mem.clock_enabled
       /*runahead code begin*/
-      io.requestor(i).l2hit := io.mem.l2hit
       io.requestor(i).l2acquire := io.mem.l2acquire
       io.requestor(i).l2request_set := io.mem.l2request_set
       io.requestor(i).l2request_tag := io.mem.l2request_tag

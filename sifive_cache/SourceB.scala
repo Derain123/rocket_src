@@ -29,7 +29,6 @@ class SourceBRequest(params: InclusiveCacheParameters) extends InclusiveCacheBun
   val set     = UInt(params.setBits.W)
   val clients = UInt(params.clientBits.W)
   /*runahead code begin*/
-  val hit     = Bool()
   val acquire = Vec(params.mshrs - 2,Bool())
   val request_tag = Vec(params.mshrs - 2,UInt(params.tagBits.W))
   val request_set = Vec(params.mshrs - 2,UInt(params.setBits.W))
@@ -88,7 +87,6 @@ class SourceB(params: InclusiveCacheParameters) extends Module
     b.bits.data    := 0.U
     b.bits.corrupt := false.B
   /*runahead code begin*/
-    b.bits.hit := io.req.bits.hit
     b.bits.acquire := io.req.bits.acquire
     b.bits.request_tag := io.req.bits.request_tag
     b.bits.request_set := io.req.bits.request_set

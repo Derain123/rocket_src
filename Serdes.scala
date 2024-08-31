@@ -231,7 +231,6 @@ class TLMergedBundle(params: TLBundleParameters, hasCorruptDenied: Boolean = tru
   val union = UInt(Seq(params.dataBits/8, params.sinkBits + 1).max.W)
   val last = Bool()
   /*runahead code begin*/
-  val hit  = Bool()
   val acquire = Vec(5, Bool())
   val request_tag = Vec(5,UInt(15.W))
   val request_set = Vec(5,UInt(7.W))
@@ -268,7 +267,6 @@ object TLMergedBundle {
     merged.union   := a.mask
     merged.last    := true.B
     /*runahead code begin*/
-    merged.hit     := true.B
     merged.acquire := VecInit(Seq.fill(5)(false.B))
     merged.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
     merged.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
@@ -292,7 +290,6 @@ object TLMergedBundle {
     merged.union   := b.mask
     merged.last    := true.B
     /*runahead code begin*/
-    merged.hit     := true.B
     merged.acquire := VecInit(Seq.fill(5)(false.B))
     merged.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
     merged.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
@@ -319,7 +316,6 @@ object TLMergedBundle {
     }
     merged.last    := true.B
     /*runahead code begin*/
-    merged.hit     := true.B
     merged.acquire := VecInit(Seq.fill(5)(false.B))
     merged.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
     merged.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
@@ -346,7 +342,6 @@ object TLMergedBundle {
     }
     merged.last    := true.B
     /*runahead code begin*/
-    merged.hit     := true.B
     merged.acquire := VecInit(Seq.fill(5)(false.B))
     merged.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
     merged.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
@@ -373,7 +368,6 @@ object TLMergedBundle {
     }
     merged.last    := true.B
     /*runahead code begin*/
-    merged.hit     := true.B
     merged.acquire := VecInit(Seq.fill(5)(false.B))
     merged.request_tag := VecInit(Seq.fill(5)(0.U(15.W)))
     merged.request_set := VecInit(Seq.fill(5)(0.U(7.W)))
@@ -443,7 +437,6 @@ object TLMergedBundle {
     else
       b.corrupt := false.B
     /*runahead code begin*/
-    b.hit     := chan.hit
     b.acquire := chan.acquire
     b.request_set := chan.request_set
     b.request_tag := chan.request_tag

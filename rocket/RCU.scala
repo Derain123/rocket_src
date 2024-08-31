@@ -25,13 +25,13 @@ class RCU_IO (params: RCU_Params) extends Bundle {
   val l2miss = Input(Bool())
   val rf_in = Input(Vec(31,UInt(params.xLen.W)))
   val sb_in = Input(Vec(31,UInt(1.W)))
-  val ipc = Input(UInt(40.W))
+//  val ipc = Input(UInt(40.W))
   val rf_out = Output(Vec(31,UInt(params.xLen.W)))
   val sb_out = Output(Vec(31,UInt(1.W)))
 //  val runahead_backflag = Output(Bool())
 //  val runahead_trig = Output(Bool())
   val runahead_flag = Output(Bool())
-  val opc = Output(UInt(40.W))
+//  val opc = Output(UInt(40.W))
 
   // val fp_out = Output(Vec(32,UInt(params.xLen.W+1)))    //floating point register file
   // val stall_pipe = Output(Bool())
@@ -50,7 +50,7 @@ class RCU (val params: RCU_Params) extends Module with Has_RCU_IO {
   //val rf_reg = RegInit(0.U(params.xLen.W))
   val rf_reg = RegInit(VecInit(Seq.fill(31)(0.U(params.xLen.W))))
   val sb_reg = RegInit(VecInit(Seq.fill(31)(0.U(1.W))))
-  val storepc = RegInit(0.U(40.W))
+//  val storepc = RegInit(0.U(40.W))
   //initialize
   // for (i <- 0 until 31) {
   //   io.rf_out(i) := 0.U(params.xLen.W)
@@ -78,9 +78,9 @@ class RCU (val params: RCU_Params) extends Module with Has_RCU_IO {
       sb_reg(i) := io.sb_in(i)
     }
 
-    storepc := io.ipc
+//    storepc := io.ipc
   }
-  io.opc := storepc
+//  io.opc := storepc
 
   for (j <- 0 until 31) {
     io.rf_out(j) := rf_reg(j)

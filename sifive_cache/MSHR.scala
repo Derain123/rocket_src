@@ -200,7 +200,6 @@ class MSHR(params: InclusiveCacheParameters) extends Module
 
   /*runahead code begin*/
   // io.b1.bits.hit := io.directory.bits.hit
-  io.schedule.bits.b.bits.hit     := io.directory.bits.hit
   io.acquire := !s_acquire & RegNext(s_acquire)
   io.request_tag := request.tag
   io.request_set := request.set

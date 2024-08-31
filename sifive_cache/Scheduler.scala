@@ -155,7 +155,6 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
   directory.io.write.bits.viewAsSupertype(chiselTypeOf(schedule.dir.bits)) := schedule.dir.bits
 
   /*runahead code begin*/
-  sourceB.io.req.bits.hit := c_mshr.io.schedule.bits.b.bits.hit
   sourceB.io.req.bits.acquire := abc_mshrs.map(_.io.acquire)
   sourceB.io.req.bits.request_set := abc_mshrs.map(_.io.request_set)
   sourceB.io.req.bits.request_tag := abc_mshrs.map(_.io.request_tag)
