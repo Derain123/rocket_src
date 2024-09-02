@@ -196,6 +196,7 @@ class HellaCacheIO(implicit p: Parameters) extends CoreBundle()(p) {
   val alloc_arb_out_ready = Input(Bool())
   val mshr_flag = Input(Bool())
   val runahead_flag = Output(Bool())
+  val rh_pseudo_exit = Output(Bool())
   val l1miss_l2set_match = Output(Bool())
   /*runahead code end*/
 

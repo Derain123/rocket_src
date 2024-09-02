@@ -327,6 +327,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val l2dcache_miss_mshr_event = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(false.B)))
   val l2dcache_miss_mshr_dep_pc = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(0.U(40.W))))
   val l2dcache_miss_mshr_dep = RegInit(VecInit(Seq.fill(tileParams.dcache.get.nMSHRs)(false.B)))
+  val ctrl_stalld_rh = Wire(Bool())
   val id_pc_valid = Wire(Bool())
 
   val rh_enter_l2miss_tag = RegInit(0.U(7.W))
@@ -666,7 +667,8 @@ val l2miss_mshr_block_match = (0 until tileParams.dcache.get.nMSHRs).map { index
 
   /*runahead code begin*/
   dontTouch(id_pc_valid)
-  id_pc_valid := !ctrl_killd || csr.io.interrupt || ibuf.io.inst(0).bits.replay
+
+  id_pc_valid := !(!ibuf.io.inst(0).valid || ibuf.io.inst(0).bits.replay || take_pc_mem_wb || ctrl_stalld_rh || csr.io.interrupt) || csr.io.interrupt || ibuf.io.inst(0).bits.replay
   when (id_pc_valid) {
     ex_rh_load := id_ctrl.mem && id_ctrl.mem_cmd === M_XRD && (runahead_flag === true.B)
     ex_rh_store := id_ctrl.mem && id_ctrl.mem_cmd === M_XWR && (runahead_flag === true.B)
@@ -1186,6 +1188,8 @@ dontTouch(l2dcache_miss_mshr_dep_pc)
 dontTouch(mem_pc_valid)
 dontTouch(wb_pc_valid)
 
+    dontTouch(ctrl_stalld_rh)
+
 for (i <- 0 until tileParams.dcache.get.nMSHRs) {
   when(mshr_l2dcache_miss(i)) {
     l2dcache_miss_mshr_event(i) := true.B
@@ -1211,9 +1215,9 @@ for (i <- 0 until tileParams.dcache.get.nMSHRs) {
     }.elsewhen(ex_pc_valid && io.dmem.req.valid && dmem_req_addr(9, 6) === l2dcache_miss_mshr_addr(i)(9, 6) && ex_ctrl.mem) {
       l2dcache_miss_mshr_dep_pc(i) := ex_reg_pc
       l2dcache_miss_mshr_dep(i) := true.B
-    }.elsewhen(id_pc_valid && id_raddr1 === l2dcache_miss_mshr_tag(i)(6, 2) || 
+    }.elsewhen(id_pc_valid && (id_raddr1 === l2dcache_miss_mshr_tag(i)(6, 2) || 
                               id_raddr2 === l2dcache_miss_mshr_tag(i)(6, 2) || 
-                              id_waddr === l2dcache_miss_mshr_tag(i)(6, 2)) {
+                              id_waddr === l2dcache_miss_mshr_tag(i)(6, 2))) {
       l2dcache_miss_mshr_dep_pc(i) := ibuf.io.pc
       l2dcache_miss_mshr_dep(i) := true.B
     }
@@ -1316,6 +1320,7 @@ when(runahead_posedge) {
 
    runahead_flag :=   rcu.io.runahead_flag
    io.dmem.runahead_flag := runahead_flag
+   io.dmem.rh_pseudo_exit := runahead_state === s_pseudo_exit
    io.dmem.l1miss_l2set_match := wb_l2set_match && !io.dmem.resp.valid
   /*runahead code end*/
 
@@ -1459,6 +1464,22 @@ when(runahead_posedge) {
   ctrl_killd := (!ibuf.io.inst(0).valid || ibuf.io.inst(0).bits.replay || take_pc_mem_wb || ctrl_stalld || csr.io.interrupt) //|| 
   /*runahead code begin*/
   //exit_miss_back
+    ctrl_stalld_rh :=
+    id_ex_hazard || id_mem_hazard || id_wb_hazard /*|| id_sboard_hazard */||
+    csr.io.singleStep && (ex_reg_valid || mem_reg_valid || wb_reg_valid) ||
+    id_csr_en && csr.io.decode(0).fp_csr && !io.fpu.fcsr_rdy ||
+    id_ctrl.fp && id_stall_fpu ||
+    id_ctrl.mem && dcache_blocked || // reduce activity during D$ misses
+    id_ctrl.rocc && rocc_blocked || // reduce activity while RoCC is busy
+    id_ctrl.div && (!(div.io.req.ready || (div.io.resp.valid && !wb_wxd)) || div.io.req.valid) || // reduce odds of replay
+    !clock_en ||
+    id_do_fence ||
+    csr.io.csr_stall ||
+    id_reg_pause ||
+    io.traceStall ||
+    /*runahead code begin*/
+    s0_db_flag || db_flag || s1_db_flag || s2_db_flag
+    /*runahead code end*/
   /*runahead code end*/
 
   io.imem.req.valid := take_pc
