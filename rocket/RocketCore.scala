@@ -669,7 +669,7 @@ val l2miss_mshr_block_match = (0 until tileParams.dcache.get.nMSHRs).map { index
   dontTouch(id_pc_valid)
 
   id_pc_valid := !(!ibuf.io.inst(0).valid || ibuf.io.inst(0).bits.replay || take_pc_mem_wb || ctrl_stalld_rh || csr.io.interrupt) || csr.io.interrupt || ibuf.io.inst(0).bits.replay
-  when (id_pc_valid) {
+  when (!(!id_pc_valid || id_sboard_hazard)) {
     ex_rh_load := id_ctrl.mem && id_ctrl.mem_cmd === M_XRD && (runahead_flag === true.B)
     ex_rh_store := id_ctrl.mem && id_ctrl.mem_cmd === M_XWR && (runahead_flag === true.B)
   } .otherwise {
@@ -1305,6 +1305,12 @@ when(runahead_posedge) {
   }
   when(runahead_state === s_exit && io.dmem.mshr_state(0) === 5.U) {
     runahead_state := s_runahead_wait_req
+  }
+  //dean add 
+  when(s2_db_flag) {
+    printf("rh_exit\n")
+  }.elsewhen(runahead_posedge) {
+    printf("rh_enter\n")
   }
   dontTouch(inv_events)
   dontTouch(io.dmem.l2acquire)
